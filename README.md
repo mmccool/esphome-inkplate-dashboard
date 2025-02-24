@@ -7,7 +7,7 @@ See TO DOs in YAML file for things that I still want to fix.
 <span>![Dashboard on wall](IMAGES/inkplate-1-wall-far.jpg)</br><em>
 Dashboard mounted on wall.</em></span>
 
-<span>![Dashboard on wall - closeup](IMAGES/inkplate-1-wall-near.jpg)</br><em>
+<span>![Dashboard on wall - closeup](IMAGES/inkplate-1-wall-close.jpg)</br><em>
 Dashboard mounted on wall - closeup.</em></span>
 
 <span>![English content on dashboard](IMAGES/inkplate-1-en.jpg)</br><em>
