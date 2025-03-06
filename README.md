@@ -2,7 +2,8 @@
 ESPHome configuration for IoT/Home Assistant dashboard based on Inkplate 6PLUS.
 Note that the 6PLUS is no longer available but something *like* this will probably work for the [Inkplate 6FLICK](https://soldered.com/product/inkplate-6flick/).
 
-See TO DOs in YAML file for things that I still want to fix. 
+See TO DOs in YAML file for things that I still want to fix.  Images are not totally up to date as I have been making improvements to
+how the information is displayed.
 
 <span>![Dashboard on wall](IMAGES/inkplate-1-wall-far.jpg)</br><em>
 Dashboard mounted on wall.</em></span>
