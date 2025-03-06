@@ -179,10 +179,15 @@ sensor:
 
   - platform: homeassistant
     id: air_co2
+    entity_id: sensor.max_co2
+
+  - platform: homeassistant
+    id: air_co2_upstairs
     entity_id: sensor.main_carbon_dioxide
   - platform: homeassistant
-    id: air_quality
+    id: air_quality_upstairs
     entity_id: sensor.main_air_quality_index
+
   - platform: homeassistant
     id: air_quality_pm0_1
     entity_id: sensor.main_pm0_1
@@ -192,6 +197,28 @@ sensor:
   - platform: homeassistant
     id: air_quality_pm2_5
     entity_id: sensor.main_pm2_5
+
+  - platform: homeassistant
+    id: air_co2_downstairs
+    entity_id: sensor.wesp_1_wesp_1_co2
+  - platform: homeassistant
+    id: air_quality_downstairs
+    entity_id: sensor.wesp_1_wesp_1_air_quality_index
+
+  - platform: homeassistant
+    id: air_quality_pm1_downstairs
+    entity_id: sensor.wesp_1_wesp_1_pm1_0
+  - platform: homeassistant
+    id: air_quality_pm2_5_downstairs
+    entity_id: sensor.wesp_1_wesp_1_pm2_5
+  - platform: homeassistant
+    id: air_quality_pm10_downstairs
+    entity_id: sensor.wesp_1_wesp_1_pm10_0
+
+  - platform: homeassistant
+    id: air_quality_inside
+    entity_id: sensor.indoor_air_quality_index
+
   - platform: homeassistant
     id: air_quality_outside
     entity_id: sensor.main_outdoor_air_quality_index
@@ -565,6 +592,10 @@ binary_sensor:
   - platform: homeassistant
     id: filter_status
     entity_id: switch.tr13_switch
+
+    # Buttons to select things on touch screen.  Conditions in automations are
+    # there to force full screen refreshes on page and language changes (by temporarily
+    # disabling partial updates if they are on), otherwise the ghosting gets to be annoying.
   - platform: touchscreen
     name: home_touchbutton
     x_min: 300 
@@ -573,8 +604,17 @@ binary_sensor:
     y_max: 230
     on_press:
       then:
-        - display.page.show: main_page
-        - component.update: inkplate_display
+        - if:
+            condition:
+              - switch.is_on: partial_updating
+            then:
+              - switch.turn_off: partial_updating
+              - display.page.show: main_page
+              - component.update: inkplate_display
+              - switch.turn_on: partial_updating
+            else:
+              - display.page.show: main_page
+              - component.update: inkplate_display
   - platform: touchscreen
     name: next_touchbutton
     x_min: 724 
@@ -583,8 +623,17 @@ binary_sensor:
     y_max: 230
     on_press:
       then:
-        - display.page.show_next: inkplate_display
-        - component.update: inkplate_display
+        - if:
+            condition:
+              - switch.is_on: partial_updating
+            then:
+              - switch.turn_off: partial_updating
+              - display.page.show_next: inkplate_display
+              - component.update: inkplate_display
+              - switch.turn_on: partial_updating
+            else:
+              - display.page.show_next: inkplate_display
+              - component.update: inkplate_display
   - platform: touchscreen
     name: next_touchbutton
     x_min: 0  
@@ -593,8 +642,17 @@ binary_sensor:
     y_max: 230
     on_press:
       then:
-        - display.page.show_previous: inkplate_display
-        - component.update: inkplate_display
+        - if:
+            condition:
+              - switch.is_on: partial_updating
+            then:
+              - switch.turn_off: partial_updating
+              - display.page.show_previous: inkplate_display
+              - component.update: inkplate_display
+              - switch.turn_on: partial_updating
+            else:
+              - display.page.show_previous: inkplate_display
+              - component.update: inkplate_display
   - platform: touchscreen
     name: main_touchbutton
     x_min: 10  # 10
@@ -603,8 +661,17 @@ binary_sensor:
     y_max: 748
     on_press:
       then:
-        - display.page.show: main_page
-        - component.update: inkplate_display
+        - if:
+            condition:
+              - switch.is_on: partial_updating
+            then:
+              - switch.turn_off: partial_updating
+              - display.page.show: main_page
+              - component.update: inkplate_display
+              - switch.turn_on: partial_updating
+            else:
+              - display.page.show: main_page
+              - component.update: inkplate_display
   - platform: touchscreen
     name: power_touchbutton
     x_min: 215 # 10 + 185 + 20
@@ -613,8 +680,17 @@ binary_sensor:
     y_max: 748
     on_press:
       then:
-        - display.page.show: power_page
-        - component.update: inkplate_display
+        - if:
+            condition:
+              - switch.is_on: partial_updating
+            then:
+              - switch.turn_off: partial_updating
+              - display.page.show: power_page
+              - component.update: inkplate_display
+              - switch.turn_on: partial_updating
+            else:
+              - display.page.show: power_page
+              - component.update: inkplate_display
   - platform: touchscreen
     name: weather_touchbutton
     x_min: 420 # 10 + 185 + 20 + 185 + 20
@@ -623,8 +699,17 @@ binary_sensor:
     y_max: 748
     on_press:
       then:
-        - display.page.show: weather_page
-        - component.update: inkplate_display
+        - if:
+            condition:
+              - switch.is_on: partial_updating
+            then:
+              - switch.turn_off: partial_updating
+              - display.page.show: weather_page
+              - component.update: inkplate_display
+              - switch.turn_on: partial_updating
+            else:
+              - display.page.show: weather_page
+              - component.update: inkplate_display
   - platform: touchscreen
     name: hvac_touchbutton
     x_min: 625 # 10 + 185 + 20 + 185 + 20 + 185 + 20
@@ -633,8 +718,17 @@ binary_sensor:
     y_max: 748
     on_press:
       then:
-        - display.page.show: hvac_page
-        - component.update: inkplate_display
+        - if:
+            condition:
+              - switch.is_on: partial_updating
+            then:
+              - switch.turn_off: partial_updating
+              - display.page.show: hvac_page
+              - component.update: inkplate_display
+              - switch.turn_on: partial_updating
+            else:
+              - display.page.show: hvac_page
+              - component.update: inkplate_display
   - platform: touchscreen
     name: air_touchbutton
     x_min: 830 # 10 + 185 + 20 + 185 + 20 + 185 + 20 + 185 + 20
@@ -643,8 +737,17 @@ binary_sensor:
     y_max: 748
     on_press:
       then:
-        - display.page.show: air_page
-        - component.update: inkplate_display
+        - if:
+            condition:
+              - switch.is_on: partial_updating
+            then:
+              - switch.turn_off: partial_updating
+              - display.page.show: air_page
+              - component.update: inkplate_display
+              - switch.turn_on: partial_updating
+            else:
+              - display.page.show: air_page
+              - component.update: inkplate_display
   - platform: touchscreen
     name: en_touchbutton
     x_min: 0 
@@ -653,9 +756,17 @@ binary_sensor:
     y_max: 460
     on_press:
       then:
-        - lambda: |-
-            id(language).publish_state("English");
-        - component.update: inkplate_display
+        - if:
+            condition:
+              - switch.is_on: partial_updating
+            then:
+              - switch.turn_off: partial_updating
+              - lambda: id(language).publish_state("English");
+              - component.update: inkplate_display
+              - switch.turn_on: partial_updating
+            else:
+              - lambda: id(language).publish_state("English");
+              - component.update: inkplate_display
   - platform: touchscreen
     name: jp_touchbutton
     x_min: 0 
@@ -664,9 +775,17 @@ binary_sensor:
     y_max: 690
     on_press:
       then:
-        - lambda: |-
-            id(language).publish_state("日本語");
-        - component.update: inkplate_display
+        - if:
+            condition:
+              - switch.is_on: partial_updating
+            then:
+              - switch.turn_off: partial_updating
+              - lambda: id(language).publish_state("日本語");
+              - component.update: inkplate_display
+              - switch.turn_on: partial_updating
+            else:
+              - lambda: id(language).publish_state("日本語");
+              - component.update: inkplate_display
 
 image:
   - file: mdi:weather-cloudy-clock
@@ -951,8 +1070,8 @@ display:
   id: inkplate_display
   greyscale: false  # makes things slower, so no
   partial_updating: true
-  update_interval: 10s   # increase this and the next item to reduce full-redraw flashing
-  full_update_every: 12
+  update_interval: 5s   # increase this and the next item to reduce full-redraw flashing
+  full_update_every: 25  # can be relatively large since we force full update on page changes
 
   ckv_pin: 32
   sph_pin: 33
@@ -980,6 +1099,7 @@ display:
   pages:
     # TO DO
     #  - Pull out common elements here for top of screen to reduce code size, make editing easier.
+    #    Unfortunately it seems there is no easy way to do this directly in YAML!
     #  - Controls to scroll up and down to put more info on a page
     #  - Some graphics, e.g. graphs, would be nice
     - id: main_page
@@ -1029,11 +1149,11 @@ display:
             case 7: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "土曜日"); break;
           }
         }
-        if (id(weather_temperature).has_state()) {
+        if (id(weather_temperature).has_state() && !isnan(id(weather_temperature).state)) {
           it.printf(1024-50, 90 - y_offset, id(sans_bold_96), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f°C", id(weather_temperature).state); // temp
         }
         if (id(language).state == "English") {
-          if (id(weather_beaufort_description_en).has_state()) {
+          if (id(weather_wind_speed).has_state() && !isnan(id(weather_wind_speed).state)) {
             if (id(weather_wind_cardinal).has_state()) {
               char cardinal[4];
               strncpy(cardinal,id(weather_wind_cardinal).state.c_str(),4);
@@ -1048,12 +1168,12 @@ display:
             }
           }
         } else if (id(language).state == "日本語") {
-          if (id(weather_beaufort_description_jp).has_state()) {
+          if (id(weather_wind_speed).has_state() && !isnan(id(weather_wind_speed).state)) {
             if (id(weather_wind_cardinal).has_state()) {
               char cardinal[4] = {0,0,0,0};
               strncpy(cardinal,id(weather_wind_cardinal).state.c_str(),4);
-              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h %s%s%s",
-                id(weather_wind_speed).state,
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.1fm/s %s%s%s",
+                (1000.0/3600.0)*id(weather_wind_speed).state,
                 ((cardinal[0] == 'n') ? "北"
                 : ((cardinal[0] == 'e') ? "東"
                   : ((cardinal[0] == 's') ? "南"
@@ -1068,8 +1188,8 @@ display:
                     : ((cardinal[2] == 'w') ? "西" : ""))))
               ); 
             } else { 
-              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h",
-                id(weather_wind_speed).state
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.1fm/s",
+                (1000.0/3600.0)*id(weather_wind_speed).state
               );
             }
           }
@@ -1235,19 +1355,19 @@ display:
         }
 
         // air quality
-        if (id(air_quality).has_state() && id(air_quality_outside).has_state()) {
+        if (id(air_quality_inside).has_state() && id(air_quality_outside).has_state()) {
           if (id(language).state == "日本語") {
             it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "空気質：");
             it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "CO₂ %.0fppm; %.0f 室内 / %.0f 野外", 
               id(air_co2).state,
-              id(air_quality).state,
+              id(air_quality_inside).state,
               id(air_quality_outside).state
             );
           } else {
             it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Air Quality:");
             it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "CO₂ %.0fppm; %.0f In / %.0f Out", 
               id(air_co2).state,
-              id(air_quality).state,
+              id(air_quality_inside).state,
               id(air_quality_outside).state
             );
           }
@@ -1425,11 +1545,11 @@ display:
             case 7: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "土曜日"); break;
           }
         }
-        if (id(weather_temperature).has_state()) {
+        if (id(weather_temperature).has_state() && !isnan(id(weather_temperature).state)) {
           it.printf(1024-50, 90 - y_offset, id(sans_bold_96), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f°C", id(weather_temperature).state); // temp
         }
         if (id(language).state == "English") {
-          if (id(weather_beaufort_description_en).has_state()) {
+          if (id(weather_wind_speed).has_state() && !isnan(id(weather_wind_speed).state)) {
             if (id(weather_wind_cardinal).has_state()) {
               char cardinal[4];
               strncpy(cardinal,id(weather_wind_cardinal).state.c_str(),4);
@@ -1444,12 +1564,12 @@ display:
             }
           }
         } else if (id(language).state == "日本語") {
-          if (id(weather_beaufort_description_jp).has_state()) {
+          if (id(weather_wind_speed).has_state() && !isnan(id(weather_wind_speed).state)) {
             if (id(weather_wind_cardinal).has_state()) {
               char cardinal[4] = {0,0,0,0};
               strncpy(cardinal,id(weather_wind_cardinal).state.c_str(),4);
-              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h %s%s%s",
-                id(weather_wind_speed).state,
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.1fm/s %s%s%s",
+                (1000.0/3600.0)*id(weather_wind_speed).state,
                 ((cardinal[0] == 'n') ? "北"
                 : ((cardinal[0] == 'e') ? "東"
                   : ((cardinal[0] == 's') ? "南"
@@ -1464,8 +1584,8 @@ display:
                     : ((cardinal[2] == 'w') ? "西" : ""))))
               ); 
             } else {
-              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h",
-                id(weather_wind_speed).state
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.1fm/s",
+                (1000.0/3600.0)*id(weather_wind_speed).state
               );
             }
           }
@@ -1696,11 +1816,11 @@ display:
             case 7: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "土曜日"); break;
           }
         }
-        if (id(weather_temperature).has_state()) {
+        if (id(weather_temperature).has_state() && !isnan(id(weather_temperature).state)) {
           it.printf(1024-50, 90 - y_offset, id(sans_bold_96), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f°C", id(weather_temperature).state); // temp
         }
         if (id(language).state == "English") {
-          if (id(weather_beaufort_description_en).has_state()) {
+          if (id(weather_wind_speed).has_state() && !isnan(id(weather_wind_speed).state)) {
             if (id(weather_wind_cardinal).has_state()) {
               char cardinal[4];
               strncpy(cardinal,id(weather_wind_cardinal).state.c_str(),4);
@@ -1715,12 +1835,12 @@ display:
             }
           }
         } else if (id(language).state == "日本語") {
-          if (id(weather_beaufort_description_jp).has_state()) {
+          if (id(weather_wind_speed).has_state() && !isnan(id(weather_wind_speed).state)) {
             if (id(weather_wind_cardinal).has_state()) {
               char cardinal[4] = {0,0,0,0};
               strncpy(cardinal,id(weather_wind_cardinal).state.c_str(),4);
-              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h %s%s%s",
-                id(weather_wind_speed).state,
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.1fm/s %s%s%s",
+                (1000.0/3600.0)*id(weather_wind_speed).state,
                 ((cardinal[0] == 'n') ? "北"
                 : ((cardinal[0] == 'e') ? "東"
                   : ((cardinal[0] == 's') ? "南"
@@ -1734,11 +1854,9 @@ display:
                   : ((cardinal[2] == 's') ? "南"
                     : ((cardinal[2] == 'w') ? "西" : ""))))
               ); 
-            } else {
-              // it.print(512, 230-5, id(sans_32), COLOR_OFF, TextAlign::BOTTOM_CENTER, 
-              //  id(weather_beaufort_description_jp).state.c_str()  
-              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h",
-                id(weather_wind_speed).state
+            } else { 
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.1fm/s",
+                (1000.0/3600.0)*id(weather_wind_speed).state
               );
             }
           }
@@ -1796,7 +1914,7 @@ display:
         const int text_x2 = 1024 - text_x1;
 
         // apparent temperature
-        if (id(weather_apparent_temperature).has_state()) {
+        if (id(weather_apparent_temperature).has_state() && !isnan(id(weather_apparent_temperature).state)) {
           if (id(language).state == "日本語") {
             it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "見かけの温度：");
           } else {
@@ -1809,7 +1927,7 @@ display:
         }
 
         // dew point
-        if (id(weather_dew_point).has_state()) {
+        if (id(weather_dew_point).has_state() && !isnan(id(weather_dew_point).state)) {
           if (id(language).state == "日本語") {
             it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "露点：");
           } else {
@@ -1822,7 +1940,7 @@ display:
         }
 
         // humidity
-        if (id(weather_relative_humidity).has_state()) {
+        if (id(weather_relative_humidity).has_state() && !isnan(id(weather_relative_humidity).state)) {
           if (id(language).state == "日本語") {
             it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "湿度：");
           } else {
@@ -1835,18 +1953,18 @@ display:
         }
 
         // pressure
-        if (id(weather_barometric_pressure).has_state()) {
+        if (id(weather_barometric_pressure).has_state() && !isnan(id(weather_barometric_pressure).state)) {
           if (id(language).state == "日本語") {
             it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "気圧：");
           } else {
             it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Pressure:");
           }
-          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1fhPa %s", 
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1fhPa%s", 
             id(weather_barometric_pressure).state,
             (id(weather_pressure_trend).state == "steady" ? "→" 
             : (id(weather_pressure_trend).state == "rising" ? "↗" 
               : (id(weather_pressure_trend).state == "falling" ? "↘" 
-                : "Unknown")
+                : "")
               )
             )
           );
@@ -1854,22 +1972,28 @@ display:
         }
 
         // wind
-        if (id(weather_wind_speed).has_state()) {
+        if (id(weather_wind_speed).has_state() && !isnan(id(weather_wind_speed).state)) {
           if (id(language).state == "日本語") {
             it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "風速：");
+            it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f→%.1f→%.1fm/s; %.0f°", 
+              (1000.0/3600.0)*id(weather_wind_lull).state,
+              (1000.0/3600.0)*id(weather_wind_speed).state,
+              (1000.0/3600.0)*id(weather_wind_gust).state,
+              id(weather_wind_direction).state
+            );
           } else {
             it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Wind Speed:");
+            it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f→%.1f→%.1fkm/h; %.0f°", 
+              id(weather_wind_lull).state,
+              id(weather_wind_speed).state,
+              id(weather_wind_gust).state,
+              id(weather_wind_direction).state
+            );
           }
-          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f→%.1f→%.1fkm/h; %.0f°", 
-            id(weather_wind_lull).state,
-            id(weather_wind_speed).state,
-            id(weather_wind_gust).state,
-            id(weather_wind_direction).state
-          );
           text_y += text_y_inc;
         }
         if (id(language).state == "日本語") {
-          if (id(weather_beaufort_description_jp).has_state()) {
+          if (id(weather_beaufort_description_jp).has_state() && !isnan(id(weather_beaufort).state)) {
             it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "ビューフォート：");
             it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%s", 
               id(weather_beaufort_description_jp).state.c_str()
@@ -1877,7 +2001,7 @@ display:
             text_y += text_y_inc;
           }
         } else {
-          if (id(weather_beaufort_description_en).has_state()) {
+          if (id(weather_beaufort_description_en).has_state() && !isnan(id(weather_beaufort).state)) {
             it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Beaufort:");
             it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%s", 
               id(weather_beaufort_description_en).state.c_str()
@@ -1887,7 +2011,7 @@ display:
         }
 
         // light
-        if (id(weather_illuminance).has_state()) {
+        if (id(weather_illuminance).has_state() && !isnan(id(weather_illuminance).state)) {
           if (id(language).state == "日本語") {
             it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "照度：");
           } else {
@@ -1902,7 +2026,7 @@ display:
         }
 
         // precipitation
-        if (id(weather_precipitation_today_checked).has_state()) {
+        if (id(weather_precipitation_today_checked).has_state() && !isnan(id(weather_precipitation_today_checked).state)) {
           if (id(language).state == "日本語") {
             it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "降水量：");
           } else {
@@ -1961,37 +2085,31 @@ display:
             case 7: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "土曜日"); break;
           }
         }
-        if (id(weather_temperature).has_state()) {
+        if (id(weather_temperature).has_state() && !isnan(id(weather_temperature).state)) {
           it.printf(1024-50, 90 - y_offset, id(sans_bold_96), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f°C", id(weather_temperature).state); // temp
         }
         if (id(language).state == "English") {
-          if (id(weather_beaufort_description_en).has_state()) {
+          if (id(weather_wind_speed).has_state() && !isnan(id(weather_wind_speed).state)) {
             if (id(weather_wind_cardinal).has_state()) {
               char cardinal[4];
               strncpy(cardinal,id(weather_wind_cardinal).state.c_str(),4);
-              // it.printf(512, 230-10, id(sans_bold_32), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%s %s",
-              //  id(weather_beaufort_description_en).state.c_str(),
               it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h %s",
                 id(weather_wind_speed).state,
                 strupr(cardinal)
               ); 
             } else {
-              // it.print(512, 230-10, id(sans_bold_32), COLOR_OFF, TextAlign::BOTTOM_CENTER, 
-              //  id(weather_beaufort_description_en).state.c_str()  
               it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h",
                 id(weather_wind_speed).state
               );
             }
           }
         } else if (id(language).state == "日本語") {
-          if (id(weather_beaufort_description_jp).has_state()) {
+          if (id(weather_wind_speed).has_state() && !isnan(id(weather_wind_speed).state)) {
             if (id(weather_wind_cardinal).has_state()) {
               char cardinal[4] = {0,0,0,0};
               strncpy(cardinal,id(weather_wind_cardinal).state.c_str(),4);
-              // it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%s %s%s%s",
-              //  id(weather_beaufort_description_jp).state.c_str(),
-              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h %s%s%s",
-                id(weather_wind_speed).state,
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.1fm/s %s%s%s",
+                (1000.0/3600.0)*id(weather_wind_speed).state,
                 ((cardinal[0] == 'n') ? "北"
                 : ((cardinal[0] == 'e') ? "東"
                   : ((cardinal[0] == 's') ? "南"
@@ -2006,10 +2124,8 @@ display:
                     : ((cardinal[2] == 'w') ? "西" : ""))))
               ); 
             } else {
-              // it.print(512, 230-5, id(sans_32), COLOR_OFF, TextAlign::BOTTOM_CENTER, 
-              //  id(weather_beaufort_description_jp).state.c_str()  
-              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h",
-                id(weather_wind_speed).state
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.1fm/s",
+                (1000.0/3600.0)*id(weather_wind_speed).state
               );
             }
           }
@@ -2224,37 +2340,31 @@ display:
             case 7: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "土曜日"); break;
           }
         }
-        if (id(weather_temperature).has_state()) {
+        if (id(weather_temperature).has_state() && !isnan(id(weather_temperature).state)) {
           it.printf(1024-50, 90 - y_offset, id(sans_bold_96), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f°C", id(weather_temperature).state); // temp
         }
         if (id(language).state == "English") {
-          if (id(weather_beaufort_description_en).has_state()) {
+          if (id(weather_wind_speed).has_state() && !isnan(id(weather_wind_speed).state)) {
             if (id(weather_wind_cardinal).has_state()) {
               char cardinal[4];
               strncpy(cardinal,id(weather_wind_cardinal).state.c_str(),4);
-              // it.printf(512, 230-10, id(sans_bold_32), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%s %s",
-              //  id(weather_beaufort_description_en).state.c_str(),
               it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h %s",
                 id(weather_wind_speed).state,
                 strupr(cardinal)
               ); 
-            } else {
-              // it.print(512, 230-10, id(sans_bold_32), COLOR_OFF, TextAlign::BOTTOM_CENTER, 
-              //  id(weather_beaufort_description_en).state.c_str()  
+            } else { 
               it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h",
                 id(weather_wind_speed).state
               );
             }
           }
         } else if (id(language).state == "日本語") {
-          if (id(weather_beaufort_description_jp).has_state()) {
+          if (id(weather_wind_speed).has_state() && !isnan(id(weather_wind_speed).state)) {
             if (id(weather_wind_cardinal).has_state()) {
               char cardinal[4] = {0,0,0,0};
               strncpy(cardinal,id(weather_wind_cardinal).state.c_str(),4);
-              // it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%s %s%s%s",
-              //  id(weather_beaufort_description_jp).state.c_str(),
-              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h %s%s%s",
-                id(weather_wind_speed).state,
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.1fm/s %s%s%s",
+                (1000.0/3600.0)*id(weather_wind_speed).state,
                 ((cardinal[0] == 'n') ? "北"
                 : ((cardinal[0] == 'e') ? "東"
                   : ((cardinal[0] == 's') ? "南"
@@ -2269,10 +2379,8 @@ display:
                     : ((cardinal[2] == 'w') ? "西" : ""))))
               ); 
             } else {
-              // it.print(512, 230-5, id(sans_32), COLOR_OFF, TextAlign::BOTTOM_CENTER, 
-              //  id(weather_beaufort_description_jp).state.c_str()  
-              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h",
-                id(weather_wind_speed).state
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.1fm/s",
+                (1000.0/3600.0)*id(weather_wind_speed).state
               );
             }
           }
@@ -2393,14 +2501,15 @@ display:
         }
 
         // carbon dioxide
-        if (id(air_co2).has_state()) {
+        if (id(air_co2_upstairs).has_state() && id(air_co2_downstairs).has_state()) {
           if (id(language).state == "日本語") {
-            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "CO₂：");
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "CO₂ (上/下)：");
           } else {
-            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "CO₂:");
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "CO₂ (Up/Down):");
           }
-          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.0fppm", 
-            id(air_co2).state
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.0f / %.0f ppm", 
+            id(air_co2_upstairs).state,
+            id(air_co2_downstairs).state
           );
           text_y += text_y_inc;
         }
@@ -2408,59 +2517,62 @@ display:
         // PM0.1
         if (id(air_quality_pm0_1).has_state()) {
           if (id(language).state == "日本語") {
-            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "PM 0.1µm：");
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "PM 0.1µm (上)：");
           } else {
-            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "PM 0.1µm:");
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "PM 0.1µm (Up):");
           }
-          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.0f µg/m³", 
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f µg/m³", 
             id(air_quality_pm0_1).state
           );
           text_y += text_y_inc;
         }
 
         // PM1
-        if (id(air_quality_pm1).has_state()) {
+        if (id(air_quality_pm1).has_state() && id(air_quality_pm1_downstairs).has_state()) {
           if (id(language).state == "日本語") {
-            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "PM 1.0µm：");
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "PM 1.0µm (上/下)：");
           } else {
-            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "PM 1.0µm:");
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "PM 1.0µm (Up/Down):");
           }
-          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.0f µg/m³", 
-            id(air_quality_pm1).state
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f / %.1f µg/m³", 
+            id(air_quality_pm1).state,
+            id(air_quality_pm1_downstairs).state
           );
           text_y += text_y_inc;
         }
 
         // PM2.5
-        if (id(air_quality_pm2_5).has_state()) {
+        if (id(air_quality_pm2_5).has_state() && id(air_quality_pm2_5_downstairs).has_state()) {
           if (id(language).state == "日本語") {
-            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "PM 2.5µm：");
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "PM 2.5µm (上/下)：");
           } else {
-            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "PM 2.5µm:");
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "PM 2.5µm (Up/Down):");
           }
-          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.0f µg/m³", 
-            id(air_quality_pm2_5).state
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f / %.1f µg/m³", 
+            id(air_quality_pm2_5).state,
+            id(air_quality_pm2_5_downstairs).state
           );
           text_y += text_y_inc;
         }
 
         // air quality
-        if (id(air_quality).has_state()) {
+        if (id(air_quality_upstairs).has_state() && id(air_quality_downstairs).has_state()) {
           if (id(language).state == "日本語") {
-            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "室内空気質：");
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "室内空気質 (上/下)：");
           } else {
-            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Indoor Air Quality:");
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Indoor AQI (Up/Down):");
           }
-          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.0f AQI", 
-            id(air_quality).state
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.0f / %.0f AQI", 
+            id(air_quality_upstairs).state,
+            id(air_quality_downstairs).state
           );
           text_y += text_y_inc;
         }
         if (id(air_quality_outside).has_state()) {
           if (id(language).state == "日本語") {
-            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "野外空気質:");
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "野外空気質：");
           } else {
-            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Outdoor Air Quality:");
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Outdoor AQI:");
           }
           it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.0f AQI", 
             id(air_quality_outside).state
@@ -2470,19 +2582,24 @@ display:
 
 # auto advance/reset page       
 # TO DO:
-#   - Do full refresh on page change, otherwise the display is too ugly
-#     (if partial update is on, need to turn it off, go to next page,
-#     turn it back on)
 #   - If someone just went to a particular page manually, the auto-advance
 #     should be paused for a bit.  Need to create a variable that is set to a non-zero
 #     value when the corresponding touch controls are used, then counted down here until
-#     zero again, then skip update when non-zero.
+#     zero again, then we should also skip that page advance when it is non-zero.
 interval:
-  - interval: 60s
+  - interval: 120s
     then:
-      - display.page.show_next: inkplate_display
-      # - display.page.show: main_page
-      - component.update: inkplate_display
+      - if:
+          condition:
+            - switch.is_on: partial_updating
+          then:
+            - switch.turn_off: partial_updating
+            - display.page.show_next: inkplate_display
+            - component.update: inkplate_display
+            - switch.turn_on: partial_updating
+          else:
+            - display.page.show_next: inkplate_display
+            - component.update: inkplate_display
       
 
 wifi:
