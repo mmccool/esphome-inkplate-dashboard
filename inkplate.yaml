@@ -1,0 +1,2614 @@
+substitutions:
+  devicename: "inkplate-1"
+  prefixname: inkplate_1
+
+esphome:
+  name: "inkplate-1"
+  friendly_name: inkplate-1
+  min_version: 2024.11.0
+  name_add_mac_suffix: false
+  on_boot:
+    then:
+        # read the RTC time once when the system boots
+      - pcf85063.read_time:
+        # make sure partial updating is on
+      - switch.turn_on: partial_updating
+
+esp32:
+  board: esp-wrover-kit
+#  board: esp32dev
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+
+# Allow Over-The-Air updates
+ota:
+  platform: esphome
+
+switch:
+  - platform: restart
+    name: Reboot
+    id: reboot
+
+# don't need this if battery not installed
+#  - platform: gpio
+#    id: battery_read_mosfet
+#    pin:
+#      mcp23xxx: mcp23017_hub
+#      number: 9
+#      inverted: true
+
+  - platform: template
+    name: Greyscale Mode
+    lambda: return id(inkplate_display).get_greyscale();
+    turn_on_action:
+      - lambda: id(inkplate_display).set_greyscale(true);
+    turn_off_action:
+      - lambda: id(inkplate_display).set_greyscale(false);
+
+  - platform: template
+    id: partial_updating
+    name: Partial Updating
+    lambda: return id(inkplate_display).get_partial_updating();
+    turn_on_action:
+      - lambda: id(inkplate_display).set_partial_updating(true);
+    turn_off_action:
+      - lambda: id(inkplate_display).set_partial_updating(false);
+
+  - platform: gpio
+    name: Touchscreen Enabled
+    restore_mode: ALWAYS_ON
+    pin:
+      mcp23xxx: mcp23017_hub
+      number: 12
+      inverted: true
+
+touchscreen:
+  - platform: ektf2232
+    interrupt_pin: GPIO36
+    display: inkplate_display
+    # Following is specific to 6PLUS rotated display.
+    transform:
+      mirror_x: false
+      mirror_y: true
+      swap_xy: true
+    rts_pin:
+      mcp23xxx: mcp23017_hub
+      number: 10
+# Following useful for testing, but wastes time in standard operation
+#    on_touch:
+#      - logger.log:
+#          format: "touch x=%d (raw x=%d), y=%d (raw y=%d)"
+#          args: ['touch.x', 'touch.x_raw', 'touch.y', 'touch.y_raw']
+
+power_supply:
+  - id: backlight_power
+    keep_on_time: 0.2s
+    enable_time: 0s
+    pin:
+      mcp23xxx: mcp23017_hub
+      number: 11
+
+output:
+  - platform: mcp47a1
+    id: backlight_brightness_output
+    min_power: 0.0
+    max_power: 0.25   # doesn't seem to do anything, unfortunately
+    power_supply: backlight_power
+
+# NOTE: if brightness is more than 25% and touch input happens on the 6PLUS, system will crash!
+# There are also 64 levels, but only 16 can be used because of this.   In theory the dimmest level
+# should be 1.5625% but I have found the lowest levels are also unstable.  7% (6.125%...) works ok.
+# Because of the small number of steps, transitions are ugly so I turned them off.  For similar
+# reasons gamma correction is linearlized, so I can map percentages directly to DAC steps.
+# Hopefully they fixed all this in the Inkplate 6FLICK!
+# TO DO:
+#  - Figure out how to rescale brightness so 0-100% in the HA UI maps to 0-0.25 here.  Maybe also
+#    clamp out the unstable lower values to zero.  Tried doing it on the output (see above), but
+#    does nothing.
+light:
+  - platform: monochromatic
+    output: backlight_brightness_output
+    id: backlight
+    default_transition_length: 0s # too few steps, looks ugly, disable
+    gamma_correct: 1 # linear, so get one-to-one mapping to limited brightness levels
+    name: Backlight # technically a sidelight, but whatever
+
+sensor:
+  - platform: uptime
+    name: Uptime Sensor
+    id: uptime_sensor
+    update_interval: 10s
+    on_raw_value:
+      then:
+        - text_sensor.template.publish:
+            id: uptime_human
+            state: !lambda |-
+              int seconds = round(id(uptime_sensor).raw_state);
+              int days = seconds / (24 * 3600);
+              seconds = seconds % (24 * 3600);
+              int hours = seconds / 3600;
+              seconds = seconds % 3600;
+              int minutes = seconds /  60;
+              seconds = seconds % 60;
+              return (
+                (days ? to_string(days) + "d" : "") +
+                (hours ? to_string(hours) + "h" : "") +
+                (minutes ? to_string(minutes) + "m" : "") +
+                (to_string(seconds) + "s")
+              ).c_str();
+        - text_sensor.template.publish:
+            id: uptime_human_short
+            state: !lambda |-
+              int seconds = round(id(uptime_sensor).raw_state);
+              int days = seconds / (24 * 3600);
+              seconds = seconds % (24 * 3600);
+              int hours = seconds / 3600;
+              seconds = seconds % 3600;
+              int minutes = seconds /  60;
+              seconds = seconds % 60;
+              return (
+                (days ? to_string(days) + "d" : "") +
+                (hours ? to_string(hours) + "h" : "") +
+                (minutes ? to_string(minutes) + "m" : "")
+              ).c_str();
+  - platform: homeassistant
+    id: battery_soc_est
+    entity_id: sensor.main_battery_soc_est
+
+  - platform: homeassistant
+    id: total_power
+    entity_id: sensor.esphome_web_99109c_power_monitor_total_watts_supply
+  - platform: homeassistant
+    id: daily_energy
+    entity_id: sensor.power_monitor_total_kwh_meter
+  - platform: homeassistant
+    id: pellet_stove_power
+    entity_id: sensor.tr14_power
+  - platform: homeassistant
+    id: daily_solar_energy
+    entity_id: sensor.total_net_energy_meter
+  - platform: homeassistant
+    id: net_solar_power
+    entity_id: sensor.current_net_power_template
+
+  - platform: homeassistant
+    id: air_co2
+    entity_id: sensor.max_co2
+
+  - platform: homeassistant
+    id: air_co2_upstairs
+    entity_id: sensor.main_carbon_dioxide
+  - platform: homeassistant
+    id: air_quality_upstairs
+    entity_id: sensor.main_air_quality_index
+
+  - platform: homeassistant
+    id: air_quality_pm0_1
+    entity_id: sensor.main_pm0_1
+  - platform: homeassistant
+    id: air_quality_pm1
+    entity_id: sensor.main_pm1
+  - platform: homeassistant
+    id: air_quality_pm2_5
+    entity_id: sensor.main_pm2_5
+
+  - platform: homeassistant
+    id: air_co2_downstairs
+    entity_id: sensor.wesp_1_wesp_1_co2
+  - platform: homeassistant
+    id: air_quality_downstairs
+    entity_id: sensor.wesp_1_wesp_1_air_quality_index
+
+  - platform: homeassistant
+    id: air_quality_pm1_downstairs
+    entity_id: sensor.wesp_1_wesp_1_pm1_0
+  - platform: homeassistant
+    id: air_quality_pm2_5_downstairs
+    entity_id: sensor.wesp_1_wesp_1_pm2_5
+  - platform: homeassistant
+    id: air_quality_pm10_downstairs
+    entity_id: sensor.wesp_1_wesp_1_pm10_0
+
+  - platform: homeassistant
+    id: air_quality_inside
+    entity_id: sensor.indoor_air_quality_index
+
+  - platform: homeassistant
+    id: air_quality_outside
+    entity_id: sensor.main_outdoor_air_quality_index
+
+  - platform: homeassistant
+    id: heatpump_1_actual_temperature
+    entity_id: sensor.upstairs_heat_pump_actual_temperature
+  - platform: homeassistant
+    id: heatpump_1_target_temperature
+    entity_id: sensor.upstairs_heat_pump_target_temperature
+  - platform: homeassistant
+    id: heatpump_2_actual_temperature
+    entity_id: sensor.downstairs_heat_pump_actual_temperature
+  - platform: homeassistant
+    id: heatpump_2_target_temperature
+    entity_id: sensor.downstairs_heat_pump_target_temperature
+
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_air_density
+    id: weather_air_density
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_beaufort
+    id: weather_beaufort
+    on_value:
+      then:
+        - text_sensor.template.publish:
+            id: weather_beaufort_description_en
+            state: !lambda |-
+              int beaufort = id(weather_beaufort).state;
+              switch (beaufort) {
+                case 0: return "Calm";
+                case 1: return "Light Air";
+                case 2: return "Light Breeze";
+                case 3: return "Gentle Breeze";
+                case 4: return "Moderate Breeze";
+                case 5: return "Fresh Breeze";
+                case 6: return "Strong Breeze";
+                case 7: return "Near Gale";
+                case 8: return "Gale";
+                case 9: return "Severe Gale";
+                case 10: return "Storm";
+                case 11: return "Violent Storm";
+                case 12: return "Hurricane";
+                default: return "";
+              } 
+        - text_sensor.template.publish:
+            id: weather_beaufort_description_jp
+            state: !lambda |-
+              int beaufort = id(weather_beaufort).state;
+              switch (beaufort) {
+                case 0: return "静穏";
+                case 1: return "至軽風";
+                case 2: return "軽風";
+                case 3: return "軟風";
+                case 4: return "和風";
+                case 5: return "疾風";
+                case 6: return "雄風";
+                case 7: return "強風";
+                case 8: return "疾強風";
+                case 9: return "大強風";
+                case 10: return "暴風";
+                case 11: return "烈風";
+                case 12: return "風具風";
+                default: return "";
+              }
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_wind_chill
+    id: weather_wind_chill
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_wind_direction
+    id: weather_wind_direction
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_wind_gust
+    id: weather_wind_gust
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_wind_lull
+    id: weather_wind_lull
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_wind_speed
+    id: weather_wind_speed
+
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_barometric_pressure
+    id: weather_barometric_pressure
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_sea_level_pressure
+    id: weather_sea_level_pressure
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_station_pressure
+    id: weather_station_pressure
+
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_absolute_humidity
+    id: weather_absolute_humidity
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_dew_point
+    id: weather_dew_point
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_heat_index
+    id: weather_heat_index
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_humidity
+    id: weather_relative_humidity
+
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_illuminance
+    id: weather_illuminance
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_solar_radiation
+    id: weather_solar_radiation
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_uv_index
+    id: weather_UV_index
+
+  - platform: homeassistant
+    id: weather_temperature
+    entity_id: sensor.edmundston_east_sensors_temperature
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_apparent_temperature
+    id: weather_apparent_temperature
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_delta_t
+    id: weather_delta_T
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_freezing_altitude
+    id: weather_freezing_altitude
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_wet_bulb_globe_temperature
+    id: weather_wet_bulb_globe_temperature
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_wet_bulb_temperature
+    id: weather_wet_bulb_temperature
+
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_precipitation_duration_today
+    id: weather_precipitation_duration_today
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_precipitation_last_hour
+    id: weather_precipitation_last_hour
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_precipitation_rate
+    id: weather_precipitation_rate
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_precipitation_today
+    id: weather_precipitation_today
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_precipitation_today_checked
+    id: weather_precipitation_today_checked
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_precipitation_type
+    id: weather_precipitation_type
+
+  - platform: homeassistant
+    entity_id: sensor.multisensor_6_air_temperature
+    id: hvac_solarium_temperature
+  - platform: homeassistant
+    entity_id: sensor.multisensor_6_humidity
+    id: hvac_solarium_humidity
+
+  - platform: homeassistant
+    entity_id: sensor.4_in_1_sensor_air_temperature
+    id: hvac_kitchen_temperature
+  - platform: homeassistant
+    entity_id: sensor.4_in_1_sensor_humidity
+    id: hvac_kitchen_humidity
+
+  - platform: homeassistant
+    entity_id: sensor.main_temperature
+    id: hvac_living_temperature
+  - platform: homeassistant
+    entity_id: sensor.main_humidity
+    id: hvac_living_humidity
+
+  - platform: homeassistant
+    entity_id: sensor.ibs_th_0538_temperature
+    id: hvac_shower_temperature
+  - platform: homeassistant
+    entity_id: sensor.ibs_th_0538_humidity
+    id: hvac_shower_humidity
+
+  - platform: homeassistant
+    entity_id: sensor.esp_ait_1_temperature
+    id: hvac_bathroom_temperature
+  - platform: homeassistant
+    entity_id: sensor.esp_ait_1_humidity
+    id: hvac_bathroom_humidity
+
+  - platform: homeassistant
+    entity_id: sensor.ibs_th_5b7b_temperature
+    id: hvac_family_temperature
+  - platform: homeassistant
+    entity_id: sensor.ibs_th_5b7b_humidity
+    id: hvac_family_humidity
+
+  - platform: homeassistant
+    entity_id: sensor.ibs_th_2308_temperature
+    id: hvac_office_temperature
+  - platform: homeassistant
+    entity_id: sensor.ibs_th_2308_humidity
+    id: hvac_office_humidity
+
+  - platform: homeassistant
+    entity_id: sensor.bedroom_thermostat_temperature
+    id: hvac_bedroom_temperature
+  - platform: homeassistant
+    entity_id: sensor.guest_thermostat_temperature
+    id: hvac_guest_temperature
+
+  - platform: homeassistant
+    entity_id: sensor.electricity_maps_co2_intensity
+    id: power_co2_intensity
+  - platform: homeassistant
+    entity_id: sensor.carbon_impact
+    id: power_co2_impact
+
+  - platform: homeassistant
+    entity_id: sensor.esphome_web_99109c_power_monitor_ct3_watts
+    id: power_hot_water
+  - platform: homeassistant
+    entity_id: sensor.ct3_daily_energy_meter
+    id: energy_hot_water
+
+  - platform: homeassistant
+    entity_id: sensor.esphome_web_99109c_power_monitor_ct9_watts
+    id: power_upstairs_washer_dryer
+  - platform: homeassistant
+    entity_id: sensor.ct9_daily_energy_meter
+    id: energy_upstairs_washer_dryer
+
+    # sus - don't think this is the right circuit, numbers don't make sense
+  - platform: homeassistant
+    entity_id: sensor.esphome_web_99109c_power_monitor_ct22_watts
+    id: power_downstairs_washer
+  - platform: homeassistant
+    entity_id: sensor.ct22_daily_energy_meter
+    id: energy_downstairs_washer
+
+  - platform: homeassistant
+    entity_id: sensor.esphome_web_99109c_power_monitor_ct22_watts
+    id: power_downstairs_dryer
+  - platform: homeassistant
+    entity_id: sensor.ct22_daily_energy_meter
+    id: energy_downstairs_dryer
+
+  - platform: homeassistant
+    entity_id: sensor.esphome_web_99109c_power_monitor_ct28_watts
+    id: power_ventilation
+  - platform: homeassistant
+    entity_id: sensor.ct28_daily_energy_meter
+    id: energy_ventilation
+
+  - platform: homeassistant
+    entity_id: sensor.esphome_web_99109c_power_monitor_ct27_watts
+    id: power_stove
+  - platform: homeassistant
+    entity_id: sensor.ct27_daily_energy_meter
+    id: energy_stove
+
+  - platform: homeassistant
+    entity_id: sensor.tr14_power
+    id: power_pellet_stove
+  - platform: homeassistant
+    entity_id: sensor.tr14_energy_meter
+    id: energy_pellet_stove
+
+  - platform: homeassistant
+    entity_id: sensor.total_power_heating_and_cooling
+    id: power_heating_and_cooling
+  - platform: homeassistant
+    entity_id: sensor.daily_energy_heating_and_cooling
+    id: energy_heating_and_cooling
+
+  - platform: homeassistant
+    entity_id: sensor.tp_link_power_strip_d2dc_current_consumption
+    id: power_grow_lights
+  - platform: homeassistant
+    entity_id: sensor.tp_link_power_strip_d2dc_today_s_consumption
+    id: energy_grow_lights
+
+  - platform: homeassistant
+    entity_id: sensor.tr15_power
+    id: power_fridge
+  - platform: homeassistant
+    entity_id: sensor.tr15_energy_meter
+    id: energy_fridge
+
+  - platform: homeassistant
+    entity_id: sensor.tr8_power
+    id: power_freezer
+  - platform: homeassistant
+    entity_id: sensor.tr8_energy_meter
+    id: energy_freezer
+
+
+text_sensor:
+  - platform: homeassistant
+    entity_id: input_select.inkplate_language
+    id: language
+    icon: mdi:translate
+  - platform: template
+    name: Uptime Human Readable
+    id: uptime_human
+    icon: mdi:clock-start
+  - platform: template
+    name: Uptime Human Short Readable
+    id: uptime_human_short
+    icon: mdi:clock-start
+  - platform: template
+    internal: true
+    id: weather_beaufort_description_en
+  - platform: template
+    internal: true
+    id: weather_beaufort_description_jp
+  - platform: wifi_info
+    ip_address:
+      id: ip_address
+      name: IP Address
+  - platform: homeassistant
+    id: current_weather
+    entity_id: weather.forecast_edmundston_east
+  - platform: homeassistant
+    id: pellet_stove_status
+    entity_id: sensor.pellet_stove_state_string
+  - platform: homeassistant
+    id: solar_charger_status
+    entity_id: sensor.victron_state_string
+  - platform: homeassistant
+    id: heatpump_1_mode
+    entity_id: climate.esp_lolin_1_esp_lolin_1_heat_pump
+  - platform: homeassistant
+    id: heatpump_2_mode
+    entity_id: climate.esp_sparkfun_thing_plus_4_heat_pump
+  - platform: homeassistant
+    id: heatpump_1_action
+    entity_id: select.upstairs_heat_pump_action
+  - platform: homeassistant
+    id: heatpump_2_action
+    entity_id: select.downstairs_heat_pump_action
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_wind_cardinal
+    id: weather_wind_cardinal
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_pressure_trend
+    id: weather_pressure_trend
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_UV_description
+    id: weather_uv_description
+  - platform: homeassistant
+    entity_id: sensor.edmundston_east_sensors_precipitation_intensity
+    id: weather_precipitation_intensity
+
+i2c:
+
+mcp23017:
+  - id: mcp23017_hub
+    address: 0x20
+
+binary_sensor:
+  - platform: status
+    name: Status
+    id: system_status
+  - platform: homeassistant
+    id: erv_status
+    entity_id: binary_sensor.ventilator_sensor_state_general_purpose
+  - platform: homeassistant
+    id: erv_low
+    entity_id: switch.ventilator_2
+  - platform: homeassistant
+    id: erv_high
+    entity_id: switch.ventilator_1
+  - platform: homeassistant
+    id: filter_status
+    entity_id: switch.tr13_switch
+
+    # Buttons to select things on touch screen.  Conditions in automations are
+    # there to force full screen refreshes on page and language changes (by temporarily
+    # disabling partial updates if they are on), otherwise the ghosting gets to be annoying.
+  - platform: touchscreen
+    name: home_touchbutton
+    x_min: 300 
+    x_max: 724 
+    y_min: 0
+    y_max: 230
+    on_press:
+      then:
+        - if:
+            condition:
+              - switch.is_on: partial_updating
+            then:
+              - switch.turn_off: partial_updating
+              - display.page.show: main_page
+              - component.update: inkplate_display
+              - switch.turn_on: partial_updating
+            else:
+              - display.page.show: main_page
+              - component.update: inkplate_display
+  - platform: touchscreen
+    name: next_touchbutton
+    x_min: 724 
+    x_max: 1024 
+    y_min: 0
+    y_max: 230
+    on_press:
+      then:
+        - if:
+            condition:
+              - switch.is_on: partial_updating
+            then:
+              - switch.turn_off: partial_updating
+              - display.page.show_next: inkplate_display
+              - component.update: inkplate_display
+              - switch.turn_on: partial_updating
+            else:
+              - display.page.show_next: inkplate_display
+              - component.update: inkplate_display
+  - platform: touchscreen
+    name: next_touchbutton
+    x_min: 0  
+    x_max: 300
+    y_min: 0
+    y_max: 230
+    on_press:
+      then:
+        - if:
+            condition:
+              - switch.is_on: partial_updating
+            then:
+              - switch.turn_off: partial_updating
+              - display.page.show_previous: inkplate_display
+              - component.update: inkplate_display
+              - switch.turn_on: partial_updating
+            else:
+              - display.page.show_previous: inkplate_display
+              - component.update: inkplate_display
+  - platform: touchscreen
+    name: main_touchbutton
+    x_min: 10  # 10
+    x_max: 195 # 10 + 185
+    y_min: 696
+    y_max: 748
+    on_press:
+      then:
+        - if:
+            condition:
+              - switch.is_on: partial_updating
+            then:
+              - switch.turn_off: partial_updating
+              - display.page.show: main_page
+              - component.update: inkplate_display
+              - switch.turn_on: partial_updating
+            else:
+              - display.page.show: main_page
+              - component.update: inkplate_display
+  - platform: touchscreen
+    name: power_touchbutton
+    x_min: 215 # 10 + 185 + 20
+    x_max: 400 # 10 + 185 + 20 + 185
+    y_min: 696
+    y_max: 748
+    on_press:
+      then:
+        - if:
+            condition:
+              - switch.is_on: partial_updating
+            then:
+              - switch.turn_off: partial_updating
+              - display.page.show: power_page
+              - component.update: inkplate_display
+              - switch.turn_on: partial_updating
+            else:
+              - display.page.show: power_page
+              - component.update: inkplate_display
+  - platform: touchscreen
+    name: weather_touchbutton
+    x_min: 420 # 10 + 185 + 20 + 185 + 20
+    x_max: 605 # 10 + 185 + 20 + 185 + 20 + 185
+    y_min: 696
+    y_max: 748
+    on_press:
+      then:
+        - if:
+            condition:
+              - switch.is_on: partial_updating
+            then:
+              - switch.turn_off: partial_updating
+              - display.page.show: weather_page
+              - component.update: inkplate_display
+              - switch.turn_on: partial_updating
+            else:
+              - display.page.show: weather_page
+              - component.update: inkplate_display
+  - platform: touchscreen
+    name: hvac_touchbutton
+    x_min: 625 # 10 + 185 + 20 + 185 + 20 + 185 + 20
+    x_max: 810 # 10 + 185 + 20 + 185 + 20 + 185 + 20 + 185
+    y_min: 696
+    y_max: 748
+    on_press:
+      then:
+        - if:
+            condition:
+              - switch.is_on: partial_updating
+            then:
+              - switch.turn_off: partial_updating
+              - display.page.show: hvac_page
+              - component.update: inkplate_display
+              - switch.turn_on: partial_updating
+            else:
+              - display.page.show: hvac_page
+              - component.update: inkplate_display
+  - platform: touchscreen
+    name: air_touchbutton
+    x_min: 830 # 10 + 185 + 20 + 185 + 20 + 185 + 20 + 185 + 20
+    x_max: 1015 # 10 + 185 + 20 + 185 + 20 + 185 + 20 + 185 + 20 + 185
+    y_min: 696
+    y_max: 748
+    on_press:
+      then:
+        - if:
+            condition:
+              - switch.is_on: partial_updating
+            then:
+              - switch.turn_off: partial_updating
+              - display.page.show: air_page
+              - component.update: inkplate_display
+              - switch.turn_on: partial_updating
+            else:
+              - display.page.show: air_page
+              - component.update: inkplate_display
+  - platform: touchscreen
+    name: en_touchbutton
+    x_min: 0 
+    x_max: 50
+    y_min: 230
+    y_max: 460
+    on_press:
+      then:
+        - if:
+            condition:
+              - switch.is_on: partial_updating
+            then:
+              - switch.turn_off: partial_updating
+              - lambda: id(language).publish_state("English");
+              - component.update: inkplate_display
+              - switch.turn_on: partial_updating
+            else:
+              - lambda: id(language).publish_state("English");
+              - component.update: inkplate_display
+  - platform: touchscreen
+    name: jp_touchbutton
+    x_min: 0 
+    x_max: 50
+    y_min: 460
+    y_max: 690
+    on_press:
+      then:
+        - if:
+            condition:
+              - switch.is_on: partial_updating
+            then:
+              - switch.turn_off: partial_updating
+              - lambda: id(language).publish_state("日本語");
+              - component.update: inkplate_display
+              - switch.turn_on: partial_updating
+            else:
+              - lambda: id(language).publish_state("日本語");
+              - component.update: inkplate_display
+
+image:
+  - file: mdi:weather-cloudy-clock
+    type: BINARY
+    transparency: chroma_key
+    id: w_0
+    resize: 160x160
+  - file: mdi:weather-night
+    type: BINARY
+    transparency: chroma_key
+    id: w_1
+    resize: 160x160
+  - file: mdi:weather-cloudy
+    type: BINARY
+    transparency: chroma_key
+    id: w_2
+    resize: 160x160
+  - file: mdi:weather-fog
+    type: BINARY
+    transparency: chroma_key
+    id: w_3
+    resize: 160x160
+  - file: mdi:weather-hail
+    type: BINARY
+    transparency: chroma_key
+    id: w_4
+    resize: 160x160
+  - file: mdi:weather-lightning
+    type: BINARY
+    transparency: chroma_key
+    id: w_5
+    resize: 160x160
+  - file: mdi:weather-lightning-rainy
+    type: BINARY
+    transparency: chroma_key
+    id: w_6
+    resize: 160x160
+  - file: mdi:weather-partly-cloudy
+    type: BINARY
+    transparency: chroma_key
+    id: w_7
+    resize: 160x160
+  - file: mdi:weather-pouring
+    type: BINARY
+    transparency: chroma_key
+    id: w_8
+    resize: 160x160
+  - file: mdi:weather-rainy
+    type: BINARY
+    transparency: chroma_key
+    id: w_9
+    resize: 160x160
+  - file: mdi:weather-snowy
+    type: BINARY
+    transparency: chroma_key
+    id: w_10
+    resize: 160x160
+  - file: mdi:weather-snowy-rainy
+    type: BINARY
+    transparency: chroma_key
+    id: w_11
+    resize: 160x160
+  - file: mdi:weather-sunny
+    type: BINARY
+    transparency: chroma_key
+    id: w_12
+    resize: 160x160
+  - file: mdi:weather-windy
+    type: BINARY
+    transparency: chroma_key
+    id: w_13
+    resize: 160x160
+  - file: mdi:weather-windy-variant
+    type: BINARY
+    transparency: chroma_key
+    id: w_14
+    resize: 160x160
+  - file: mdi:alert-circle-outline
+    type: BINARY
+    transparency: chroma_key
+    id: w_15
+    resize: 160x160
+
+# time:
+#  - platform: sntp
+#    id: esptime
+
+time:
+  - platform: pcf85063
+    id: esptime
+    # repeated synchronization is not necessary unless the external RTC
+    # is much more accurate than the internal clock
+    update_interval: never
+  - platform: homeassistant
+    # instead try to synchronize via network repeatedly ...
+    on_time_sync:
+      then:
+        # ... and update the RTC when the synchronization was successful
+        pcf85063.write_time:
+
+# TO DO:
+#  - Remove glpyhs that are not used in particular versions of the font.
+#    While setting this up I was lazy and just copied all glyphs used to
+#    all versions, but really most are used only for the Item titles.  However,
+#    this is a waste of storage.  There are probably also some glyphs in there
+#    that I'm not using anymore after doing several edits to the Japanese translation.
+font:
+  - file:
+      type: gfonts
+      family: Noto Sans JP
+      weight: regular
+    size: 32
+    glyphsets:
+      - GF_Latin_Core
+    glyphs: [
+      ー、。：・,→,↗,↘,
+      西東北南,
+      風強静穏至軽軟和疾雄大暴烈具,
+      日月火水木金土曜,
+      主電気天空調温度,
+      二酸化炭素,
+      負荷,
+      フィルタオンマニュア力エネギヒトポプブペレッスバクロライビォリグキチサムシャワァミベドゲ,
+      換高低速,
+      のいてるからりとおけ,
+      洗濯湯成長蔵凍庫,
+      太陽池総,
+      質内外室野,
+      階上加熱冷却乾燥吹待機予霜取未知下,
+      供給燃焼点吸収暖房,
+      降量照圧湿露見交器
+      ]
+    id: sans_32
+  - file:
+      type: gfonts
+      family: Noto Sans JP
+      weight: regular
+    size: 48
+    glyphsets:
+      - GF_Latin_Core
+    glyphs: [
+      ー、。：・,µ,→,↗,↘,
+      西東北南,
+      風強静穏至軽軟和疾雄大暴烈具,
+      日月火水木金土曜,
+      主電気天空調温度,
+      二酸化炭素,
+      負荷,
+      フィルタオンマニュア力エネギヒトポプブペレッスバクロライビォリグキチサムシャワァミベドゲ,
+      換高低速,
+      のいてるからりとおけ,
+      洗濯湯成長蔵凍庫,
+      太陽池総,
+      質内外室野,
+      階上加熱冷却乾燥吹待機予霜取未知下,
+      供給燃焼点吸収暖房,
+      降量照圧湿露見交器
+      ]
+    extras:
+      - file: gfonts://Noto+Sans
+        glyphs: [
+          ²,³,₂
+          ]
+    id: sans_48
+  - file:
+      type: gfonts
+      family: Noto Sans
+      weight: regular
+    glyphsets:
+      - GF_Latin_Core
+    id: sans_18
+    size: 18
+  - file:
+      type: gfonts
+      family: Noto Sans JP
+      weight: bold
+    size: 32
+    glyphsets:
+      - GF_Latin_Core
+    glyphs: [
+      ー、。：・,→,↗,↘,
+      西東北南,
+      風強静穏至軽軟和疾雄大暴烈具,
+      日月火水木金土曜,
+      主電気天空調温度,
+      二酸化炭素,
+      負荷,
+      フィルタオンマニュア力エネギヒトポプブペレッスバクロライビォリグキチサムシャワァミベドゲ,
+      換高低速,
+      のいてるからりとおけ,
+      洗濯湯成長蔵凍庫,
+      太陽池総,
+      質内外室野,
+      階上加熱冷却乾燥吹待機予霜取未知下,
+      供給燃焼点吸収暖房,
+      降量照圧湿露見交器
+      ]
+    id: sans_bold_32
+  - file:
+      type: gfonts
+      family: Noto Sans JP
+      weight: bold
+    size: 48
+    glyphsets:
+      - GF_Latin_Core
+    glyphs: [
+      ー、。：・,µ,→,↗,↘,
+      西東北南,
+      風強静穏至軽軟和疾雄大暴烈具,
+      日月火水木金土曜,
+      主電気天空調温度,
+      二酸化炭素,
+      負荷,
+      フィルタオンマニュア力エネギヒトポプブペレッスバクロライビォリグキチサムシャワァミベドゲ,
+      換高低速,
+      のいてるからりとおけ,
+      洗濯湯成長蔵凍庫,
+      太陽池総,
+      質内外室野,
+      階上加熱冷却乾燥吹待機予霜取未知下,
+      供給燃焼点吸収暖房,
+      降量照圧湿露見交器
+      ]
+    extras:
+      - file: gfonts://Noto+Sans
+        glyphs: [
+          ²,³,₂
+        ]
+    id: sans_bold_48
+  - file:
+      type: gfonts
+      family: Noto Sans JP
+      weight: bold
+    size: 96
+    glyphs: [
+      0123456789,
+      '-',':','.','°','C'
+      ]
+    id: sans_bold_96
+
+# If you want to download fonts yourself and only care about English.
+# These DO look slightly nicer than the Noto fonts IMO.
+#  - file: "fonts/OpenSans-Regular.ttf"
+#    id: opensans_96
+#    size: 96
+#  - file: "fonts/OpenSans-Regular.ttf"
+#    id: opensans_48
+#    size: 48
+#    glyphsets:
+#      - GF_Latin_Core
+#    glyphs: [
+#      '°','µ','²','³','₂'
+#      ]
+#  - file: "fonts/OpenSans-Regular.ttf"
+#    id: opensans_32
+#    size: 32
+#  - file: "fonts/OpenSans-Regular.ttf"
+#    id: opensans_18
+#    size: 18
+#  - file: "fonts/OpenSans-Bold.ttf"
+#    id: opensans_bold_96
+#    size: 96
+#  - file: "fonts/OpenSans-Bold.ttf"
+#    id: opensans_bold_48
+#    size: 48
+#    glyphsets:
+#      - GF_Latin_Core
+#    glyphs: [
+#      °,µ,²,³,₂
+#      ]
+#  - file: "fonts/OpenSans-Bold.ttf"
+#    id: opensans_bold_32
+#    size: 32
+#  - file: "fonts/OpenSans-Bold.ttf"
+#    id: opensans_bold_18
+#    size: 18
+
+
+display:
+- platform: inkplate6
+  model: inkplate_6_plus
+  id: inkplate_display
+  greyscale: false  # makes things slower, so no
+  partial_updating: true
+  update_interval: 5s   # increase this and the next item to reduce full-redraw flashing
+  full_update_every: 25  # can be relatively large since we force full update on page changes
+
+  ckv_pin: 32
+  sph_pin: 33
+  gmod_pin:
+    mcp23xxx: mcp23017_hub
+    number: 1
+  gpio0_enable_pin:
+    mcp23xxx: mcp23017_hub
+    number: 8
+  oe_pin:
+    mcp23xxx: mcp23017_hub
+    number: 0
+  spv_pin:
+    mcp23xxx: mcp23017_hub
+    number: 2
+  powerup_pin:
+    mcp23xxx: mcp23017_hub
+    number: 4
+  wakeup_pin:
+    mcp23xxx: mcp23017_hub
+    number: 3
+  vcom_pin:
+    mcp23xxx: mcp23017_hub
+    number: 5
+  pages:
+    # TO DO
+    #  - Pull out common elements here for top of screen to reduce code size, make editing easier.
+    #    Unfortunately it seems there is no easy way to do this directly in YAML!
+    #  - Controls to scroll up and down to put more info on a page
+    #  - Some graphics, e.g. graphs, would be nice
+    - id: main_page
+      lambda: |-
+        it.fill(COLOR_ON);
+
+        // page titles
+        const int num_pages = 5;
+        const int button_margin = 10;
+        const int button_pad = 5;
+        const int button_width = 1024/num_pages - button_margin*2;
+        const int button_height = 32 + 10 + 2*button_pad;
+        const int button_y = 758 - button_margin;
+        it.rectangle(button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        it.filled_rectangle(button_width+3*button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        it.filled_rectangle(2*button_width+5*button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        it.filled_rectangle(3*button_width+7*button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        it.filled_rectangle(4*button_width+9*button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        if (id(language).state == "English") {
+          it.print(button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_OFF, TextAlign::BOTTOM_CENTER, "Main");
+          it.print(button_width+3*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "Elec");
+          it.print(2*button_width+5*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "Weather");
+          it.print(3*button_width+7*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "Heat");
+          it.print(4*button_width+9*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "Air");
+        } else if (id(language).state == "日本語") {
+          it.print(button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_OFF, TextAlign::BOTTOM_CENTER, "主");
+          it.print(button_width+3*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "電気");
+          it.print(2*button_width+5*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "天気");
+          it.print(3*button_width+7*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "温度");
+          it.print(4*button_width+9*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "空気");
+        }
+
+        // time, date, outside temps, wind
+        const int y_offset = 20;
+        it.strftime(50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "%Y-%m-%d", id(esptime).now()); // date
+        it.strftime(50, 90 - y_offset, id(sans_bold_96), COLOR_OFF, TextAlign::TOP_LEFT, "%H:%M", id(esptime).now()); // time
+        if (id(language).state == "English") {
+          it.strftime(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%A", id(esptime).now()); // weekday
+        } else if (id(language).state == "日本語") {
+          switch (id(esptime).now().day_of_week) {
+            case 1: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "日曜日"); break;
+            case 2: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "月曜日"); break;
+            case 3: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "火曜日"); break;
+            case 4: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "水曜日"); break;
+            case 5: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "木曜日"); break;
+            case 6: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "金曜日"); break;
+            case 7: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "土曜日"); break;
+          }
+        }
+        if (id(weather_temperature).has_state() && !isnan(id(weather_temperature).state)) {
+          it.printf(1024-50, 90 - y_offset, id(sans_bold_96), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f°C", id(weather_temperature).state); // temp
+        }
+        if (id(language).state == "English") {
+          if (id(weather_wind_speed).has_state() && !isnan(id(weather_wind_speed).state)) {
+            if (id(weather_wind_cardinal).has_state()) {
+              char cardinal[4];
+              strncpy(cardinal,id(weather_wind_cardinal).state.c_str(),4);
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h %s",
+                id(weather_wind_speed).state,
+                strupr(cardinal)
+              ); 
+            } else {
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h",
+                id(weather_wind_speed).state
+              );
+            }
+          }
+        } else if (id(language).state == "日本語") {
+          if (id(weather_wind_speed).has_state() && !isnan(id(weather_wind_speed).state)) {
+            if (id(weather_wind_cardinal).has_state()) {
+              char cardinal[4] = {0,0,0,0};
+              strncpy(cardinal,id(weather_wind_cardinal).state.c_str(),4);
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.1fm/s %s%s%s",
+                (1000.0/3600.0)*id(weather_wind_speed).state,
+                ((cardinal[0] == 'n') ? "北"
+                : ((cardinal[0] == 'e') ? "東"
+                  : ((cardinal[0] == 's') ? "南"
+                    : ((cardinal[0] == 'w') ? "西" : "")))),
+                ((cardinal[1] == 'n') ? "北"
+                : ((cardinal[1] == 'e') ? "東"
+                  : ((cardinal[1] == 's') ? "南"
+                    : ((cardinal[1] == 'w') ? "西" : "")))),
+                ((cardinal[2] == 'n') ? "北"
+                : ((cardinal[2] == 'e') ? "東"
+                  : ((cardinal[2] == 's') ? "南"
+                    : ((cardinal[2] == 'w') ? "西" : ""))))
+              ); 
+            } else { 
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.1fm/s",
+                (1000.0/3600.0)*id(weather_wind_speed).state
+              );
+            }
+          }
+        }
+
+        // weather status
+        const int img_x = 512;
+        const int img_y = 15;
+        if (id(current_weather).state == "clear-night") {
+          it.image(img_x, img_y, id(w_1), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "cloudy") {
+          it.image(img_x, img_y, id(w_2), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "fog") {
+          it.image(img_x, img_y, id(w_3), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "hail") {
+          it.image(img_x, img_y, id(w_4), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "lightning") {
+          it.image(img_x, img_y, id(w_5), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "lightning-rainy") {
+          it.image(img_x, img_y, id(w_6), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "partlycloudy") {
+          it.image(img_x, img_y, id(w_7), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "pouring") {
+          it.image(img_x, img_y, id(w_8), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "rainy") {
+          it.image(img_x, img_y, id(w_9), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "snowy") {
+          it.image(img_x, img_y, id(w_10), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "snowy-rainy") {
+          it.image(img_x, img_y, id(w_11), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "sunny") {
+          it.image(img_x, img_y, id(w_12), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "windy") {
+          it.image(img_x, img_y, id(w_13), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "windy-variant") {
+          it.image(img_x, img_y, id(w_14), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "exceptional") {
+          it.image(img_x, img_y, id(w_15), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else {
+          it.image(img_x, img_y, id(w_0), ImageAlign::TOP_CENTER, COLOR_OFF);
+        }
+
+        // separating line
+        it.line(10, 230, 1014, 230, COLOR_OFF);
+        // system status
+        if (id(system_status).state) {
+          it.printf(1015, 10, id(sans_18), COLOR_OFF, TextAlign::TOP_RIGHT, "%s", id(uptime_human_short).state.c_str());
+          it.printf(10, 10, id(sans_18), COLOR_OFF, TextAlign::TOP_LEFT, "%s", id(ip_address).state.c_str());
+        }
+
+        // other data
+        const int text_y_inc = 55;
+        int text_y = 230 + 5;
+        const int text_x1 = 50;
+        const int text_x2 = 1024 - text_x1;
+
+        // solar battery and charger 
+        if (id(battery_soc_est).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "太陽：");
+            it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f%% %s、%.1fW / %.1fWh", 
+              id(battery_soc_est).state,
+              id(solar_charger_status).has_state() ? 
+                (id(solar_charger_status).state == "Bulk" ? "バルク"
+                : (id(solar_charger_status).state == "Absorption" ? "吸収"
+                  : (id(solar_charger_status).state == "Float" ? "フロート"
+                    : (id(solar_charger_status).state == "Off" ? "オフ"
+                      : "未知")
+                    )
+                  )
+                ) : "",
+              id(net_solar_power).has_state() ? id(net_solar_power).state : 0.0,
+              id(daily_solar_energy).has_state() ? id(daily_solar_energy).state : 0.0
+            );
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Solar:");
+            it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f%% %s; %.1fW / %.1fWh", 
+              id(battery_soc_est).state,
+              id(solar_charger_status).has_state() ? id(solar_charger_status).state.c_str() : "",
+              id(net_solar_power).has_state() ? id(net_solar_power).state : 0.0,
+              id(daily_solar_energy).has_state() ? id(daily_solar_energy).state : 0.0
+            );
+          }
+          text_y += text_y_inc;
+        }
+
+        // main electric power
+        if (id(total_power).has_state() && id(daily_energy).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "電気：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Electricity:");
+
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1fW / %.3fkWh", 
+            id(total_power).state,
+            id(daily_energy).state
+          );
+          text_y += text_y_inc;
+        }
+
+        // daily carbon impact
+        if (id(power_co2_impact).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "炭素負荷：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Carbon Impact:");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.0fg/kWh; %.3fkg", 
+            id(power_co2_intensity).state,
+            id(power_co2_impact).state
+          );
+          text_y += text_y_inc;
+        }
+
+        // ventilation and filtering
+        const char* filter_status_string = 
+          id(filter_status).has_state() ? (
+            (id(language).state == "日本語") ?
+              (id(filter_status).state ? "・フィルターオン" : "")
+            : (id(filter_status).state ? " / Filter On" : "")
+          ) : "";
+        if (id(erv_status).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "換気：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Ventilation:");
+          }
+          if (id(erv_status).state) {
+            if (id(erv_high).has_state()) {
+              if (id(erv_high).state) {
+                if (id(language).state == "日本語") {
+                  it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "高速%s", filter_status_string);
+                } else {
+                  it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "High%s", filter_status_string);
+                }
+              } else {
+                if (id(erv_low).has_state()) {
+                  if (id(erv_low).state) {
+                    if (id(language).state == "日本語") {
+                      it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "低速%s", filter_status_string);
+                    } else {
+                      it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "Low%s", filter_status_string);
+                    }
+                  } else {
+                    if (id(language).state == "日本語") {
+                      it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "マニュアル%s", filter_status_string);
+                    } else {
+                      it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "Manual%s", filter_status_string);
+                    }
+                  }
+                }
+              }
+            }
+          } else {
+            if (id(language).state == "日本語") {
+              it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "オフ%s", filter_status_string);
+            } else {
+              it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "Off%s", filter_status_string);
+            }
+          }
+          text_y += text_y_inc;
+        }
+
+        // air quality
+        if (id(air_quality_inside).has_state() && id(air_quality_outside).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "空気質：");
+            it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "CO₂ %.0fppm; %.0f 室内 / %.0f 野外", 
+              id(air_co2).state,
+              id(air_quality_inside).state,
+              id(air_quality_outside).state
+            );
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Air Quality:");
+            it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "CO₂ %.0fppm; %.0f In / %.0f Out", 
+              id(air_co2).state,
+              id(air_quality_inside).state,
+              id(air_quality_outside).state
+            );
+          }
+          text_y += text_y_inc;
+        }
+
+        // pellet stove 
+        if (id(pellet_stove_status).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "ペレットストーブ：");
+            it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%s %0.1f W",
+              (id(pellet_stove_status).state == "Standby" ? "待機"
+              : (id(pellet_stove_status).state == "Feeding" ? "供給"
+                : (id(pellet_stove_status).state == "Burning" ? "燃焼"
+                  : (id(pellet_stove_status).state == "Ignition" ? "点火"
+                    : "オフ")
+                  )
+                )
+              ),
+              id(pellet_stove_power).has_state() ? id(pellet_stove_power).state : 0.0
+            );
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Pellet Stove:");  
+            it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%s %0.1f W",
+              id(pellet_stove_status).state.c_str(), 
+              id(pellet_stove_power).has_state() ? id(pellet_stove_power).state : 0.0
+            );
+          }
+          text_y += text_y_inc;
+        }
+
+        // heat pump 1 (upstairs)
+        if (id(heatpump_1_action).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "階上のヒートポンプ：");
+            it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f→%.1f°C %s",
+              id(heatpump_1_actual_temperature).state,
+              id(heatpump_1_target_temperature).state,
+              (id(heatpump_1_action).state == "heating" ? "加熱" 
+              : (id(heatpump_1_action).state == "cooling" ? "冷却" 
+                : (id(heatpump_1_action).state == "drying" ? "乾燥" 
+                  : (id(heatpump_1_action).state == "fan" ? "吹いている" 
+                    : (id(heatpump_1_action).state == "idle" ? "待機" 
+                      : (id(heatpump_1_action).state == "off" ? "オフ" 
+                        : (id(heatpump_1_action).state == "preheating" ? "予熱" 
+                          : (id(heatpump_1_action).state == "defrosting" ? "霜取り" 
+                            : "未知")
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            );
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Upper Heat Pump:");
+            it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%s %.1f→%.1f°C",
+              (id(heatpump_1_action).state == "heating" ? "Heat" 
+              : (id(heatpump_1_action).state == "cooling" ? "Cool" 
+                : (id(heatpump_1_action).state == "drying" ? "Dry" 
+                  : (id(heatpump_1_action).state == "fan" ? "Fan" 
+                    : (id(heatpump_1_action).state == "idle" ? "Idle" 
+                      : (id(heatpump_1_action).state == "off" ? "Off" 
+                        : (id(heatpump_1_action).state == "preheating" ? "Preheat" 
+                          : (id(heatpump_1_action).state == "defrosting" ? "Defrost" 
+                            : "Unknown")
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              ),
+              id(heatpump_1_actual_temperature).state,
+              id(heatpump_1_target_temperature).state
+            );
+          }
+          text_y += text_y_inc;
+        }
+
+        // heat pump 2 (downstairs)
+        if (id(heatpump_2_action).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "階下のヒートポンプ：");
+            it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f→%.1f°C %s",
+              id(heatpump_2_actual_temperature).state,
+              id(heatpump_2_target_temperature).state,
+              (id(heatpump_2_action).state == "heating" ? "加熱" 
+              : (id(heatpump_2_action).state == "cooling" ? "冷却" 
+                : (id(heatpump_2_action).state == "drying" ? "乾燥" 
+                  : (id(heatpump_2_action).state == "fan" ? "吹いている" 
+                    : (id(heatpump_2_action).state == "idle" ? "待機" 
+                      : (id(heatpump_2_action).state == "off" ? "オフ" 
+                        : (id(heatpump_2_action).state == "preheating" ? "予熱" 
+                          : (id(heatpump_2_action).state == "defrosting" ? "霜取り" 
+                            : "未知")
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            );
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Lower Heat Pump:");
+            it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%s %.1f→%.1f°C",
+              (id(heatpump_2_action).state == "heating" ? "Heat" 
+              : (id(heatpump_2_action).state == "cooling" ? "Cool" 
+                : (id(heatpump_2_action).state == "drying" ? "Dry" 
+                  : (id(heatpump_2_action).state == "fan" ? "Fan" 
+                    : (id(heatpump_2_action).state == "idle" ? "Idle" 
+                      : (id(heatpump_2_action).state == "off" ? "Off" 
+                        : (id(heatpump_2_action).state == "preheating" ? "Preheat" 
+                          : (id(heatpump_2_action).state == "defrosting" ? "Defrost" 
+                            : "Unknown")
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              ),
+              id(heatpump_2_actual_temperature).state,
+              id(heatpump_2_target_temperature).state
+            );
+          }
+          text_y += text_y_inc;
+        }
+    - id: power_page
+      lambda: |-
+        it.fill(COLOR_ON);
+
+        // page titles
+        const int num_pages = 5;
+        const int button_margin = 10;
+        const int button_pad = 5;
+        const int button_width = 1024/num_pages - button_margin*2;
+        const int button_height = 32 + 10 + 2*button_pad;
+        const int button_y = 758 - button_margin;
+        it.filled_rectangle(button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        it.rectangle(button_width+3*button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        it.filled_rectangle(2*button_width+5*button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        it.filled_rectangle(3*button_width+7*button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        it.filled_rectangle(4*button_width+9*button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        if (id(language).state == "English") {
+          it.print(button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "Main");
+          it.print(button_width+3*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_OFF, TextAlign::BOTTOM_CENTER, "Elec");
+          it.print(2*button_width+5*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "Weather");
+          it.print(3*button_width+7*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "Heat");
+          it.print(4*button_width+9*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "Air");
+        } else if (id(language).state == "日本語") {
+          it.print(button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "主");
+          it.print(button_width+3*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_OFF, TextAlign::BOTTOM_CENTER, "電気");
+          it.print(2*button_width+5*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "天気");
+          it.print(3*button_width+7*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "温度");
+          it.print(4*button_width+9*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "空気");
+        }
+
+        // time, date, outside temps, wind
+        const int y_offset = 20;
+        it.strftime(50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "%Y-%m-%d", id(esptime).now()); // date
+        it.strftime(50, 90 - y_offset, id(sans_bold_96), COLOR_OFF, TextAlign::TOP_LEFT, "%H:%M", id(esptime).now()); // time
+        if (id(language).state == "English") {
+          it.strftime(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%A", id(esptime).now()); // weekday
+        } else if (id(language).state == "日本語") {
+          switch (id(esptime).now().day_of_week) {
+            case 1: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "日曜日"); break;
+            case 2: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "月曜日"); break;
+            case 3: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "火曜日"); break;
+            case 4: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "水曜日"); break;
+            case 5: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "木曜日"); break;
+            case 6: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "金曜日"); break;
+            case 7: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "土曜日"); break;
+          }
+        }
+        if (id(weather_temperature).has_state() && !isnan(id(weather_temperature).state)) {
+          it.printf(1024-50, 90 - y_offset, id(sans_bold_96), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f°C", id(weather_temperature).state); // temp
+        }
+        if (id(language).state == "English") {
+          if (id(weather_wind_speed).has_state() && !isnan(id(weather_wind_speed).state)) {
+            if (id(weather_wind_cardinal).has_state()) {
+              char cardinal[4];
+              strncpy(cardinal,id(weather_wind_cardinal).state.c_str(),4);
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h %s",
+                id(weather_wind_speed).state,
+                strupr(cardinal)
+              ); 
+            } else {
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h",
+                id(weather_wind_speed).state
+              );
+            }
+          }
+        } else if (id(language).state == "日本語") {
+          if (id(weather_wind_speed).has_state() && !isnan(id(weather_wind_speed).state)) {
+            if (id(weather_wind_cardinal).has_state()) {
+              char cardinal[4] = {0,0,0,0};
+              strncpy(cardinal,id(weather_wind_cardinal).state.c_str(),4);
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.1fm/s %s%s%s",
+                (1000.0/3600.0)*id(weather_wind_speed).state,
+                ((cardinal[0] == 'n') ? "北"
+                : ((cardinal[0] == 'e') ? "東"
+                  : ((cardinal[0] == 's') ? "南"
+                    : ((cardinal[0] == 'w') ? "西" : "")))),
+                ((cardinal[1] == 'n') ? "北"
+                : ((cardinal[1] == 'e') ? "東"
+                  : ((cardinal[1] == 's') ? "南"
+                    : ((cardinal[1] == 'w') ? "西" : "")))),
+                ((cardinal[2] == 'n') ? "北"
+                : ((cardinal[2] == 'e') ? "東"
+                  : ((cardinal[2] == 's') ? "南"
+                    : ((cardinal[2] == 'w') ? "西" : ""))))
+              ); 
+            } else {
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.1fm/s",
+                (1000.0/3600.0)*id(weather_wind_speed).state
+              );
+            }
+          }
+        }
+
+        if (id(language).state == "English") {
+          it.strftime(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%A", id(esptime).now()); // weekday
+        } else if (id(language).state == "日本語") {
+          switch (id(esptime).now().day_of_week) {
+            case 1: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "日曜日"); break;
+            case 2: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "月曜日"); break;
+            case 3: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "火曜日"); break;
+            case 4: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "水曜日"); break;
+            case 5: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "木曜日"); break;
+            case 6: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "金曜日"); break;
+            case 7: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "土曜日"); break;
+          }
+        }
+
+        // weather status
+        const int img_x = 512;
+        const int img_y = 15;
+        if (id(current_weather).state == "clear-night") {
+          it.image(img_x, img_y, id(w_1), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "cloudy") {
+          it.image(img_x, img_y, id(w_2), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "fog") {
+          it.image(img_x, img_y, id(w_3), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "hail") {
+          it.image(img_x, img_y, id(w_4), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "lightning") {
+          it.image(img_x, img_y, id(w_5), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "lightning-rainy") {
+          it.image(img_x, img_y, id(w_6), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "partlycloudy") {
+          it.image(img_x, img_y, id(w_7), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "pouring") {
+          it.image(img_x, img_y, id(w_8), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "rainy") {
+          it.image(img_x, img_y, id(w_9), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "snowy") {
+          it.image(img_x, img_y, id(w_10), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "snowy-rainy") {
+          it.image(img_x, img_y, id(w_11), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "sunny") {
+          it.image(img_x, img_y, id(w_12), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "windy") {
+          it.image(img_x, img_y, id(w_13), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "windy-variant") {
+          it.image(img_x, img_y, id(w_14), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "exceptional") {
+          it.image(img_x, img_y, id(w_15), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else {
+          it.image(img_x, img_y, id(w_0), ImageAlign::TOP_CENTER, COLOR_OFF);
+        }
+
+        // separating line
+        it.line(10, 230, 1014, 230, COLOR_OFF);
+        // system status
+        if (id(system_status).state) {
+          it.printf(1015, 10, id(sans_18), COLOR_OFF, TextAlign::TOP_RIGHT, "%s", id(uptime_human_short).state.c_str());
+          it.printf(10, 10, id(sans_18), COLOR_OFF, TextAlign::TOP_LEFT, "%s", id(ip_address).state.c_str());
+        }
+
+        // other data
+        const int text_y_inc = 55;
+        int text_y = 230 + 5;
+        const int text_x1 = 50;
+        const int text_x2 = 1024 - text_x1;
+
+        // main electric power
+        if (id(total_power).has_state() && id(daily_energy).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "総電気：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Total Electricity:");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1fW / %.3fkWh", 
+            id(total_power).state,
+            id(daily_energy).state
+          );
+          text_y += text_y_inc;
+        }
+
+        // hot water heater
+        if (id(power_hot_water).has_state() && id(energy_hot_water).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "お湯：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Hot Water:");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1fW / %.3fkWh", 
+            id(power_hot_water).state,
+            id(energy_hot_water).state/1000.0
+          );
+          text_y += text_y_inc;
+        }
+
+        // stove
+        if (id(power_stove).has_state() && id(energy_stove).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "ストーブ：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Stove:");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1fW / %.3fkWh", 
+            id(power_stove).state,
+            id(energy_stove).state/1000.0
+          );
+          text_y += text_y_inc;
+        }
+
+        // pellet stove (later: all heating)
+        if (id(power_heating_and_cooling).has_state() && id(energy_pellet_stove).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "暖房と冷房：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Heating & Cooling:");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1fW / %.3fkWh", 
+            id(power_heating_and_cooling).state,
+            id(energy_heating_and_cooling).state
+          );
+          text_y += text_y_inc;
+        }
+
+        // washers and dryers
+        if (id(power_upstairs_washer_dryer).has_state() && id(power_downstairs_washer).has_state() && id(power_downstairs_dryer).has_state() &&
+            id(energy_upstairs_washer_dryer).has_state() && id(energy_downstairs_washer).has_state() && id(energy_downstairs_dryer).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "洗濯機と乾燥機：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Washers & Dryers:");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1fW / %.3fkWh", 
+            id(power_upstairs_washer_dryer).state + id(power_downstairs_washer).state + id(power_downstairs_dryer).state,
+            (id(energy_upstairs_washer_dryer).state + id(energy_downstairs_washer).state + id(energy_downstairs_dryer).state)/1000.0
+          );
+          text_y += text_y_inc;
+        }
+
+        // grow lights
+        if (id(power_grow_lights).has_state() && id(energy_grow_lights).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "成長ライト：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Grow Lights:");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1fW / %.3fkWh", 
+            id(power_grow_lights).state,
+            id(energy_grow_lights).state
+          );
+          text_y += text_y_inc;
+        }
+
+        // ventilation
+        if (id(power_ventilation).has_state() && id(energy_ventilation).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "換気：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Ventilation:");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1fW / %.3fkWh", 
+            id(power_ventilation).state,
+            id(energy_ventilation).state/1000.0
+          );
+          text_y += text_y_inc;
+        }
+
+        // fridge and freezer
+        if (id(power_fridge).has_state() && id(energy_fridge).has_state() &&
+            id(power_freezer).has_state() && id(energy_freezer).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "冷蔵庫と冷凍庫：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Fridge & Freezer:");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1fW / %.3fkWh", 
+            id(power_fridge).state + id(power_fridge).state,
+            id(energy_fridge).state + id(energy_freezer).state
+          );
+          text_y += text_y_inc;
+        }
+    - id: weather_page
+      lambda: |-
+        it.fill(COLOR_ON);
+
+        // page titles
+        const int num_pages = 5;
+        const int button_margin = 10;
+        const int button_pad = 5;
+        const int button_width = 1024/num_pages - button_margin*2;
+        const int button_height = 32 + 10 + 2*button_pad;
+        const int button_y = 758 - button_margin;
+        it.filled_rectangle(button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        it.filled_rectangle(button_width+3*button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        it.rectangle(2*button_width+5*button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        it.filled_rectangle(3*button_width+7*button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        it.filled_rectangle(4*button_width+9*button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        if (id(language).state == "English") {
+          it.print(button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "Main");
+          it.print(button_width+3*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "Elec");
+          it.print(2*button_width+5*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_OFF, TextAlign::BOTTOM_CENTER, "Weather");
+          it.print(3*button_width+7*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "Heat");
+          it.print(4*button_width+9*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "Air");
+        } else if (id(language).state == "日本語") {
+          it.print(button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "主");
+          it.print(button_width+3*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "電気");
+          it.print(2*button_width+5*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_OFF, TextAlign::BOTTOM_CENTER, "天気");
+          it.print(3*button_width+7*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "温度");
+          it.print(4*button_width+9*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "空気");
+        }
+
+        // time, date, outside temps
+        const int y_offset = 20;
+        it.strftime(50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "%Y-%m-%d", id(esptime).now()); // date
+        it.strftime(50, 90 - y_offset, id(sans_bold_96), COLOR_OFF, TextAlign::TOP_LEFT, "%H:%M", id(esptime).now()); // time
+        if (id(language).state == "English") {
+          it.strftime(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%A", id(esptime).now()); // weekday
+        } else if (id(language).state == "日本語") {
+          switch (id(esptime).now().day_of_week) {
+            case 1: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "日曜日"); break;
+            case 2: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "月曜日"); break;
+            case 3: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "火曜日"); break;
+            case 4: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "水曜日"); break;
+            case 5: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "木曜日"); break;
+            case 6: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "金曜日"); break;
+            case 7: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "土曜日"); break;
+          }
+        }
+        if (id(weather_temperature).has_state() && !isnan(id(weather_temperature).state)) {
+          it.printf(1024-50, 90 - y_offset, id(sans_bold_96), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f°C", id(weather_temperature).state); // temp
+        }
+        if (id(language).state == "English") {
+          if (id(weather_wind_speed).has_state() && !isnan(id(weather_wind_speed).state)) {
+            if (id(weather_wind_cardinal).has_state()) {
+              char cardinal[4];
+              strncpy(cardinal,id(weather_wind_cardinal).state.c_str(),4);
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h %s",
+                id(weather_wind_speed).state,
+                strupr(cardinal)
+              ); 
+            } else {
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h",
+                id(weather_wind_speed).state
+              );
+            }
+          }
+        } else if (id(language).state == "日本語") {
+          if (id(weather_wind_speed).has_state() && !isnan(id(weather_wind_speed).state)) {
+            if (id(weather_wind_cardinal).has_state()) {
+              char cardinal[4] = {0,0,0,0};
+              strncpy(cardinal,id(weather_wind_cardinal).state.c_str(),4);
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.1fm/s %s%s%s",
+                (1000.0/3600.0)*id(weather_wind_speed).state,
+                ((cardinal[0] == 'n') ? "北"
+                : ((cardinal[0] == 'e') ? "東"
+                  : ((cardinal[0] == 's') ? "南"
+                    : ((cardinal[0] == 'w') ? "西" : "")))),
+                ((cardinal[1] == 'n') ? "北"
+                : ((cardinal[1] == 'e') ? "東"
+                  : ((cardinal[1] == 's') ? "南"
+                    : ((cardinal[1] == 'w') ? "西" : "")))),
+                ((cardinal[2] == 'n') ? "北"
+                : ((cardinal[2] == 'e') ? "東"
+                  : ((cardinal[2] == 's') ? "南"
+                    : ((cardinal[2] == 'w') ? "西" : ""))))
+              ); 
+            } else { 
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.1fm/s",
+                (1000.0/3600.0)*id(weather_wind_speed).state
+              );
+            }
+          }
+        }
+
+        // weather status
+        const int img_x = 512;
+        const int img_y = 15;
+        if (id(current_weather).state == "clear-night") {
+          it.image(img_x, img_y, id(w_1), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "cloudy") {
+          it.image(img_x, img_y, id(w_2), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "fog") {
+          it.image(img_x, img_y, id(w_3), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "hail") {
+          it.image(img_x, img_y, id(w_4), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "lightning") {
+          it.image(img_x, img_y, id(w_5), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "lightning-rainy") {
+          it.image(img_x, img_y, id(w_6), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "partlycloudy") {
+          it.image(img_x, img_y, id(w_7), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "pouring") {
+          it.image(img_x, img_y, id(w_8), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "rainy") {
+          it.image(img_x, img_y, id(w_9), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "snowy") {
+          it.image(img_x, img_y, id(w_10), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "snowy-rainy") {
+          it.image(img_x, img_y, id(w_11), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "sunny") {
+          it.image(img_x, img_y, id(w_12), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "windy") {
+          it.image(img_x, img_y, id(w_13), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "windy-variant") {
+          it.image(img_x, img_y, id(w_14), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "exceptional") {
+          it.image(img_x, img_y, id(w_15), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else {
+          it.image(img_x, img_y, id(w_0), ImageAlign::TOP_CENTER, COLOR_OFF);
+        }
+
+        // separating line
+        it.line(10, 230, 1014, 230, COLOR_OFF);
+        // system status
+        if (id(system_status).state) {
+          it.printf(1015, 10, id(sans_18), COLOR_OFF, TextAlign::TOP_RIGHT, "%s", id(uptime_human_short).state.c_str());
+          it.printf(10, 10, id(sans_18), COLOR_OFF, TextAlign::TOP_LEFT, "%s", id(ip_address).state.c_str());
+        }
+
+        // other data
+        const int text_y_inc = 55;
+        int text_y = 230 + 5;
+        const int text_x1 = 50;
+        const int text_x2 = 1024 - text_x1;
+
+        // apparent temperature
+        if (id(weather_apparent_temperature).has_state() && !isnan(id(weather_apparent_temperature).state)) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "見かけの温度：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Apparent Temperature:");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f°C", 
+            id(weather_apparent_temperature).state
+          );
+          text_y += text_y_inc;
+        }
+
+        // dew point
+        if (id(weather_dew_point).has_state() && !isnan(id(weather_dew_point).state)) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "露点：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Dew Point:");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f°C", 
+            id(weather_dew_point).state
+          );
+          text_y += text_y_inc;
+        }
+
+        // humidity
+        if (id(weather_relative_humidity).has_state() && !isnan(id(weather_relative_humidity).state)) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "湿度：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Humidity:");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f%%", 
+            id(weather_relative_humidity).state
+          );
+          text_y += text_y_inc;
+        }
+
+        // pressure
+        if (id(weather_barometric_pressure).has_state() && !isnan(id(weather_barometric_pressure).state)) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "気圧：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Pressure:");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1fhPa%s", 
+            id(weather_barometric_pressure).state,
+            (id(weather_pressure_trend).state == "steady" ? "→" 
+            : (id(weather_pressure_trend).state == "rising" ? "↗" 
+              : (id(weather_pressure_trend).state == "falling" ? "↘" 
+                : "")
+              )
+            )
+          );
+          text_y += text_y_inc;
+        }
+
+        // wind
+        if (id(weather_wind_speed).has_state() && !isnan(id(weather_wind_speed).state)) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "風速：");
+            it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f→%.1f→%.1fm/s; %.0f°", 
+              (1000.0/3600.0)*id(weather_wind_lull).state,
+              (1000.0/3600.0)*id(weather_wind_speed).state,
+              (1000.0/3600.0)*id(weather_wind_gust).state,
+              id(weather_wind_direction).state
+            );
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Wind Speed:");
+            it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f→%.1f→%.1fkm/h; %.0f°", 
+              id(weather_wind_lull).state,
+              id(weather_wind_speed).state,
+              id(weather_wind_gust).state,
+              id(weather_wind_direction).state
+            );
+          }
+          text_y += text_y_inc;
+        }
+        if (id(language).state == "日本語") {
+          if (id(weather_beaufort_description_jp).has_state() && !isnan(id(weather_beaufort).state)) {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "ビューフォート：");
+            it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%s", 
+              id(weather_beaufort_description_jp).state.c_str()
+            );
+            text_y += text_y_inc;
+          }
+        } else {
+          if (id(weather_beaufort_description_en).has_state() && !isnan(id(weather_beaufort).state)) {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Beaufort:");
+            it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%s", 
+              id(weather_beaufort_description_en).state.c_str()
+            );
+            text_y += text_y_inc;
+          }
+        }
+
+        // light
+        if (id(weather_illuminance).has_state() && !isnan(id(weather_illuminance).state)) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "照度：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Light:"); // "Illuminance" is too long to fit
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.0flux (%.0fW/m²); UV %0.1f", 
+            id(weather_illuminance).state,
+            id(weather_solar_radiation).state,
+            id(weather_UV_index).state
+          );
+          text_y += text_y_inc;
+        }
+
+        // precipitation
+        if (id(weather_precipitation_today_checked).has_state() && !isnan(id(weather_precipitation_today_checked).state)) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "降水量：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Precipitation:");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1fmm (%.1fmm/h)", 
+            id(weather_precipitation_today_checked).state,
+            id(weather_precipitation_rate).state
+          );
+          text_y += text_y_inc;
+        }
+    - id: hvac_page
+      lambda: |-
+        it.fill(COLOR_ON);
+
+        // page titles
+        const int num_pages = 5;
+        const int button_margin = 10;
+        const int button_pad = 5;
+        const int button_width = 1024/num_pages - button_margin*2;
+        const int button_height = 32 + 10 + 2*button_pad;
+        const int button_y = 758 - button_margin;
+        it.filled_rectangle(button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        it.filled_rectangle(button_width+3*button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        it.filled_rectangle(2*button_width+5*button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        it.rectangle(3*button_width+7*button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        it.filled_rectangle(4*button_width+9*button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        if (id(language).state == "English") {
+          it.print(button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "Main");
+          it.print(button_width+3*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "Elec");
+          it.print(2*button_width+5*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "Weather");
+          it.print(3*button_width+7*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_OFF, TextAlign::BOTTOM_CENTER, "Heat");
+          it.print(4*button_width+9*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "Air");
+        } else if (id(language).state == "日本語") {
+          it.print(button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "主");
+          it.print(button_width+3*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "電気");
+          it.print(2*button_width+5*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "天気");
+          it.print(3*button_width+7*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_OFF, TextAlign::BOTTOM_CENTER, "温度");
+          it.print(4*button_width+9*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "空気");
+        }
+
+        // time, date, outside temps
+        const int y_offset = 20;
+        it.strftime(50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "%Y-%m-%d", id(esptime).now()); // date
+        it.strftime(50, 90 - y_offset, id(sans_bold_96), COLOR_OFF, TextAlign::TOP_LEFT, "%H:%M", id(esptime).now()); // time
+        if (id(language).state == "English") {
+          it.strftime(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%A", id(esptime).now()); // weekday
+        } else if (id(language).state == "日本語") {
+          switch (id(esptime).now().day_of_week) {
+            case 1: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "日曜日"); break;
+            case 2: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "月曜日"); break;
+            case 3: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "火曜日"); break;
+            case 4: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "水曜日"); break;
+            case 5: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "木曜日"); break;
+            case 6: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "金曜日"); break;
+            case 7: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "土曜日"); break;
+          }
+        }
+        if (id(weather_temperature).has_state() && !isnan(id(weather_temperature).state)) {
+          it.printf(1024-50, 90 - y_offset, id(sans_bold_96), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f°C", id(weather_temperature).state); // temp
+        }
+        if (id(language).state == "English") {
+          if (id(weather_wind_speed).has_state() && !isnan(id(weather_wind_speed).state)) {
+            if (id(weather_wind_cardinal).has_state()) {
+              char cardinal[4];
+              strncpy(cardinal,id(weather_wind_cardinal).state.c_str(),4);
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h %s",
+                id(weather_wind_speed).state,
+                strupr(cardinal)
+              ); 
+            } else {
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h",
+                id(weather_wind_speed).state
+              );
+            }
+          }
+        } else if (id(language).state == "日本語") {
+          if (id(weather_wind_speed).has_state() && !isnan(id(weather_wind_speed).state)) {
+            if (id(weather_wind_cardinal).has_state()) {
+              char cardinal[4] = {0,0,0,0};
+              strncpy(cardinal,id(weather_wind_cardinal).state.c_str(),4);
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.1fm/s %s%s%s",
+                (1000.0/3600.0)*id(weather_wind_speed).state,
+                ((cardinal[0] == 'n') ? "北"
+                : ((cardinal[0] == 'e') ? "東"
+                  : ((cardinal[0] == 's') ? "南"
+                    : ((cardinal[0] == 'w') ? "西" : "")))),
+                ((cardinal[1] == 'n') ? "北"
+                : ((cardinal[1] == 'e') ? "東"
+                  : ((cardinal[1] == 's') ? "南"
+                    : ((cardinal[1] == 'w') ? "西" : "")))),
+                ((cardinal[2] == 'n') ? "北"
+                : ((cardinal[2] == 'e') ? "東"
+                  : ((cardinal[2] == 's') ? "南"
+                    : ((cardinal[2] == 'w') ? "西" : ""))))
+              ); 
+            } else {
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.1fm/s",
+                (1000.0/3600.0)*id(weather_wind_speed).state
+              );
+            }
+          }
+        }
+
+        // weather status
+        const int img_x = 512;
+        const int img_y = 15;
+        if (id(current_weather).state == "clear-night") {
+          it.image(img_x, img_y, id(w_1), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "cloudy") {
+          it.image(img_x, img_y, id(w_2), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "fog") {
+          it.image(img_x, img_y, id(w_3), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "hail") {
+          it.image(img_x, img_y, id(w_4), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "lightning") {
+          it.image(img_x, img_y, id(w_5), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "lightning-rainy") {
+          it.image(img_x, img_y, id(w_6), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "partlycloudy") {
+          it.image(img_x, img_y, id(w_7), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "pouring") {
+          it.image(img_x, img_y, id(w_8), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "rainy") {
+          it.image(img_x, img_y, id(w_9), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "snowy") {
+          it.image(img_x, img_y, id(w_10), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "snowy-rainy") {
+          it.image(img_x, img_y, id(w_11), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "sunny") {
+          it.image(img_x, img_y, id(w_12), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "windy") {
+          it.image(img_x, img_y, id(w_13), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "windy-variant") {
+          it.image(img_x, img_y, id(w_14), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "exceptional") {
+          it.image(img_x, img_y, id(w_15), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else {
+          it.image(img_x, img_y, id(w_0), ImageAlign::TOP_CENTER, COLOR_OFF);
+        }
+
+        // separating line
+        it.line(10, 230, 1014, 230, COLOR_OFF);
+        // system status
+        if (id(system_status).state) {
+          it.printf(1015, 10, id(sans_18), COLOR_OFF, TextAlign::TOP_RIGHT, "%s", id(uptime_human_short).state.c_str());
+          it.printf(10, 10, id(sans_18), COLOR_OFF, TextAlign::TOP_LEFT, "%s", id(ip_address).state.c_str());
+        }
+
+        // other data
+        const int text_y_inc = 55;
+        int text_y = 230 + 5;
+        const int text_x1 = 50;
+        const int text_x2 = 1024 - text_x1;
+
+        // living room
+        if (id(hvac_living_temperature).has_state() && id(hvac_living_humidity).has_state() ) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "リビング：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Living Room:");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%0.1f°C %0.1f%%",
+              id(hvac_living_temperature).state, 
+              id(hvac_living_humidity).state
+          );
+          text_y += text_y_inc;
+        }
+
+        // kitchen
+        if (id(hvac_kitchen_temperature).has_state() && id(hvac_kitchen_humidity).has_state() ) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "キッチン：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Kitchen:");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%0.1f°C %0.1f%%",
+              id(hvac_kitchen_temperature).state, 
+              id(hvac_kitchen_humidity).state
+          );
+          text_y += text_y_inc;
+        }
+
+        // solarium
+        if (id(hvac_solarium_temperature).has_state() && id(hvac_solarium_humidity).has_state() ) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "サンルーム：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Solarium:");            
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%0.1f°C %0.1f%%",
+              id(hvac_solarium_temperature).state, 
+              id(hvac_solarium_humidity).state
+          );
+          text_y += text_y_inc;
+        }
+
+        // bathroom
+        if (id(hvac_bathroom_temperature).has_state() && id(hvac_bathroom_humidity).has_state() ) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "バスルーム：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Bathroom:");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%0.1f°C %0.1f%%",
+              id(hvac_bathroom_temperature).state, 
+              id(hvac_bathroom_humidity).state
+          );
+          text_y += text_y_inc;
+        }
+
+        // shower
+        if (id(hvac_shower_temperature).has_state() && id(hvac_shower_humidity).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "シャワー：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Shower:");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%0.1f°C %0.1f%%",
+              id(hvac_shower_temperature).state, 
+              id(hvac_shower_humidity).state
+          );
+          text_y += text_y_inc;
+        }
+
+        // family
+        if (id(hvac_family_temperature).has_state() && id(hvac_family_humidity).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "ファミリー：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Family:");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%0.1f°C %0.1f%%",
+              id(hvac_shower_temperature).state, 
+              id(hvac_shower_humidity).state
+          );
+          text_y += text_y_inc;
+        }
+
+        // office
+        if (id(hvac_office_temperature).has_state() && id(hvac_office_humidity).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "オフィス：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Office:");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%0.1f°C %0.1f%%",
+              id(hvac_office_temperature).state, 
+              id(hvac_office_humidity).state
+          );
+          text_y += text_y_inc;
+        }
+
+        // bedrooms
+        if (id(hvac_bedroom_temperature).has_state() && id(hvac_guest_temperature).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "ベッドルーム / ゲスト");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Bedroom/Guest:");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%0.1f°C %0.1f°C",
+              id(hvac_bedroom_temperature).state, 
+              id(hvac_guest_temperature).state
+          );
+          text_y += text_y_inc;
+        }
+    - id: air_page
+      lambda: |-
+        it.fill(COLOR_ON);
+
+        // page titles
+        const int num_pages = 5;
+        const int button_margin = 10;
+        const int button_pad = 5;
+        const int button_width = 1024/num_pages - button_margin*2;
+        const int button_height = 32 + 10 + 2*button_pad;
+        const int button_y = 758 - button_margin;
+        it.filled_rectangle(button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        it.filled_rectangle(button_width+3*button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        it.filled_rectangle(2*button_width+5*button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        it.filled_rectangle(3*button_width+7*button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        it.rectangle(4*button_width+9*button_margin, button_y-button_height, button_width, button_height, COLOR_OFF);
+        if (id(language).state == "English") {
+          it.print(button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "Main");
+          it.print(button_width+3*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "Elec");
+          it.print(2*button_width+5*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "Weather");
+          it.print(3*button_width+7*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "Heat");
+          it.print(4*button_width+9*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_OFF, TextAlign::BOTTOM_CENTER, "Air");
+        } else if (id(language).state == "日本語") {
+          it.print(button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "主");
+          it.print(button_width+3*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "電気");
+          it.print(2*button_width+5*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "天気");
+          it.print(3*button_width+7*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_ON, TextAlign::BOTTOM_CENTER, "温度");
+          it.print(4*button_width+9*button_margin+button_width/2, button_y-button_pad, id(sans_bold_32), COLOR_OFF, TextAlign::BOTTOM_CENTER, "空気");
+        }
+
+        // time, date, outside temps
+        const int y_offset = 20;
+        it.strftime(50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "%Y-%m-%d", id(esptime).now()); // date
+        it.strftime(50, 90 - y_offset, id(sans_bold_96), COLOR_OFF, TextAlign::TOP_LEFT, "%H:%M", id(esptime).now()); // time
+        if (id(language).state == "English") {
+          it.strftime(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%A", id(esptime).now()); // weekday
+        } else if (id(language).state == "日本語") {
+          switch (id(esptime).now().day_of_week) {
+            case 1: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "日曜日"); break;
+            case 2: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "月曜日"); break;
+            case 3: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "火曜日"); break;
+            case 4: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "水曜日"); break;
+            case 5: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "木曜日"); break;
+            case 6: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "金曜日"); break;
+            case 7: it.print(1024-50, 50 - y_offset, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_RIGHT, "土曜日"); break;
+          }
+        }
+        if (id(weather_temperature).has_state() && !isnan(id(weather_temperature).state)) {
+          it.printf(1024-50, 90 - y_offset, id(sans_bold_96), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f°C", id(weather_temperature).state); // temp
+        }
+        if (id(language).state == "English") {
+          if (id(weather_wind_speed).has_state() && !isnan(id(weather_wind_speed).state)) {
+            if (id(weather_wind_cardinal).has_state()) {
+              char cardinal[4];
+              strncpy(cardinal,id(weather_wind_cardinal).state.c_str(),4);
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h %s",
+                id(weather_wind_speed).state,
+                strupr(cardinal)
+              ); 
+            } else { 
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.0fkm/h",
+                id(weather_wind_speed).state
+              );
+            }
+          }
+        } else if (id(language).state == "日本語") {
+          if (id(weather_wind_speed).has_state() && !isnan(id(weather_wind_speed).state)) {
+            if (id(weather_wind_cardinal).has_state()) {
+              char cardinal[4] = {0,0,0,0};
+              strncpy(cardinal,id(weather_wind_cardinal).state.c_str(),4);
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.1fm/s %s%s%s",
+                (1000.0/3600.0)*id(weather_wind_speed).state,
+                ((cardinal[0] == 'n') ? "北"
+                : ((cardinal[0] == 'e') ? "東"
+                  : ((cardinal[0] == 's') ? "南"
+                    : ((cardinal[0] == 'w') ? "西" : "")))),
+                ((cardinal[1] == 'n') ? "北"
+                : ((cardinal[1] == 'e') ? "東"
+                  : ((cardinal[1] == 's') ? "南"
+                    : ((cardinal[1] == 'w') ? "西" : "")))),
+                ((cardinal[2] == 'n') ? "北"
+                : ((cardinal[2] == 'e') ? "東"
+                  : ((cardinal[2] == 's') ? "南"
+                    : ((cardinal[2] == 'w') ? "西" : ""))))
+              ); 
+            } else {
+              it.printf(512, 230-5, id(sans_48), COLOR_OFF, TextAlign::BOTTOM_CENTER, "%.1fm/s",
+                (1000.0/3600.0)*id(weather_wind_speed).state
+              );
+            }
+          }
+        }
+
+        // weather status
+        const int img_x = 512;
+        const int img_y = 15;
+        if (id(current_weather).state == "clear-night") {
+          it.image(img_x, img_y, id(w_1), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "cloudy") {
+          it.image(img_x, img_y, id(w_2), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "fog") {
+          it.image(img_x, img_y, id(w_3), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "hail") {
+          it.image(img_x, img_y, id(w_4), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "lightning") {
+          it.image(img_x, img_y, id(w_5), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "lightning-rainy") {
+          it.image(img_x, img_y, id(w_6), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "partlycloudy") {
+          it.image(img_x, img_y, id(w_7), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "pouring") {
+          it.image(img_x, img_y, id(w_8), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "rainy") {
+          it.image(img_x, img_y, id(w_9), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "snowy") {
+          it.image(img_x, img_y, id(w_10), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "snowy-rainy") {
+          it.image(img_x, img_y, id(w_11), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "sunny") {
+          it.image(img_x, img_y, id(w_12), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "windy") {
+          it.image(img_x, img_y, id(w_13), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "windy-variant") {
+          it.image(img_x, img_y, id(w_14), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else if (id(current_weather).state == "exceptional") {
+          it.image(img_x, img_y, id(w_15), ImageAlign::TOP_CENTER, COLOR_OFF);
+        } else {
+          it.image(img_x, img_y, id(w_0), ImageAlign::TOP_CENTER, COLOR_OFF);
+        }
+
+        // separating line
+        it.line(10, 230, 1014, 230, COLOR_OFF);
+        // system status
+        if (id(system_status).state) {
+          it.printf(1015, 10, id(sans_18), COLOR_OFF, TextAlign::TOP_RIGHT, "%s", id(uptime_human_short).state.c_str());
+          it.printf(10, 10, id(sans_18), COLOR_OFF, TextAlign::TOP_LEFT, "%s", id(ip_address).state.c_str());
+        }
+
+        // other data
+        const int text_y_inc = 55;
+        int text_y = 230 + 5;
+        const int text_x1 = 50;
+        const int text_x2 = 1024 - text_x1;
+
+        // air exchanger (ERV)
+        if (id(erv_status).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "空気交換器(ERV)：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Air Exchanger (ERV):");
+          }
+          if (id(erv_status).state) {
+            if (id(erv_high).has_state()) {
+              if (id(erv_high).state) {
+                if (id(language).state == "日本語") {
+                  it.print(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "高速");
+                } else {
+                  it.print(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "High");
+                }
+              } else {
+                if (id(erv_low).has_state()) {
+                  if (id(erv_low).state) {
+                    if (id(language).state == "日本語") {
+                      it.print(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "低速");
+                    } else {
+                      it.print(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "Low");
+                    }
+                  } else {
+                    if (id(language).state == "日本語") {
+                      it.print(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "マニュアル");
+                    } else {
+                      it.print(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "Manual");
+                    }
+                  }
+                }
+              }
+            }
+          } else {
+            if (id(language).state == "日本語") {
+              it.print(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "オフ");
+            } else {
+              it.print(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "Off");
+            }
+          }
+          text_y += text_y_inc;
+        }
+
+        // filtering
+        if (id(filter_status).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "フィルター：");
+            if (id(filter_status).state) {
+              it.print(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "オン");
+            } else {
+              it.print(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "オフ");
+            }
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Filter:");
+            if (id(filter_status).state) {
+              it.print(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "On");
+            } else {
+              it.print(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "Off");
+            }
+          }
+          text_y += text_y_inc;
+        }
+
+        // carbon dioxide
+        if (id(air_co2_upstairs).has_state() && id(air_co2_downstairs).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "CO₂ (上/下)：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "CO₂ (Up/Down):");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.0f / %.0f ppm", 
+            id(air_co2_upstairs).state,
+            id(air_co2_downstairs).state
+          );
+          text_y += text_y_inc;
+        }
+
+        // PM0.1
+        if (id(air_quality_pm0_1).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "PM 0.1µm (上)：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "PM 0.1µm (Up):");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f µg/m³", 
+            id(air_quality_pm0_1).state
+          );
+          text_y += text_y_inc;
+        }
+
+        // PM1
+        if (id(air_quality_pm1).has_state() && id(air_quality_pm1_downstairs).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "PM 1.0µm (上/下)：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "PM 1.0µm (Up/Down):");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f / %.1f µg/m³", 
+            id(air_quality_pm1).state,
+            id(air_quality_pm1_downstairs).state
+          );
+          text_y += text_y_inc;
+        }
+
+        // PM2.5
+        if (id(air_quality_pm2_5).has_state() && id(air_quality_pm2_5_downstairs).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "PM 2.5µm (上/下)：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "PM 2.5µm (Up/Down):");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.1f / %.1f µg/m³", 
+            id(air_quality_pm2_5).state,
+            id(air_quality_pm2_5_downstairs).state
+          );
+          text_y += text_y_inc;
+        }
+
+        // air quality
+        if (id(air_quality_upstairs).has_state() && id(air_quality_downstairs).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "室内空気質 (上/下)：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Indoor AQI (Up/Down):");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.0f / %.0f AQI", 
+            id(air_quality_upstairs).state,
+            id(air_quality_downstairs).state
+          );
+          text_y += text_y_inc;
+        }
+        if (id(air_quality_outside).has_state()) {
+          if (id(language).state == "日本語") {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "野外空気質：");
+          } else {
+            it.print(text_x1, text_y, id(sans_bold_48), COLOR_OFF, TextAlign::TOP_LEFT, "Outdoor AQI:");
+          }
+          it.printf(text_x2, text_y, id(sans_48), COLOR_OFF, TextAlign::TOP_RIGHT, "%.0f AQI", 
+            id(air_quality_outside).state
+          );
+          text_y += text_y_inc;
+        }
+
+# auto advance/reset page       
+# TO DO:
+#   - If someone just went to a particular page manually, the auto-advance
+#     should be paused for a bit.  Need to create a variable that is set to a non-zero
+#     value when the corresponding touch controls are used, then counted down here until
+#     zero again, then we should also skip that page advance when it is non-zero.
+interval:
+  - interval: 120s
+    then:
+      - if:
+          condition:
+            - switch.is_on: partial_updating
+          then:
+            - switch.turn_off: partial_updating
+            - display.page.show_next: inkplate_display
+            - component.update: inkplate_display
+            - switch.turn_on: partial_updating
+          else:
+            - display.page.show_next: inkplate_display
+            - component.update: inkplate_display
+      
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: ${devicename}
+    password: !secret recovery_password
+
+captive_portal:
