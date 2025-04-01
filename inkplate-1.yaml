@@ -74,8 +74,8 @@ touchscreen:
     display: inkplate_display
     # Following is specific to 6PLUS rotated display.
     transform:
-      mirror_x: false
-      mirror_y: true
+      mirror_x: true
+      mirror_y: false
       swap_xy: true
     rts_pin:
       mcp23xxx: mcp23017_hub
